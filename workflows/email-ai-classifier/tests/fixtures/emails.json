@@ -1,0 +1,26 @@
+[
+  {
+    "expectedCategory": "urgent",
+    "subject": "PRODUCTION OUTAGE - API down, customers affected",
+    "body": "Our production API has been returning 500s for the last 20 minutes. This is impacting all customers. We need someone to jump on a call immediately and acknowledge before the SLA window closes today.",
+    "why": "Explicit outage plus a same-day SLA deadline. Time pressure outranks everything else."
+  },
+  {
+    "expectedCategory": "sales",
+    "subject": "Cut your reporting time by 40% with GrowthTools",
+    "body": "Hi there, I noticed your team is scaling fast. GrowthTools helps companies like yours automate analytics dashboards. Would you be open to a quick 15-minute demo next week? No rush at all.",
+    "why": "Cold outreach with a soft ask and no deadline. 'No rush at all' is the signal that keeps it out of urgent."
+  },
+  {
+    "expectedCategory": "personal",
+    "subject": "Dinner this weekend?",
+    "body": "Hey! It has been way too long since we caught up. Are you free for dinner on Saturday? Thinking that little Italian place we love. Let me know what works for you!",
+    "why": "Informal register, shared history, social invitation. No commercial intent."
+  },
+  {
+    "expectedCategory": "spam",
+    "subject": "Congratulations!!! You have WON a $1,000 gift card",
+    "body": "Dear lucky user, you have been selected to receive a $1000 Amazon gift card. Click the link below within 24 hours to claim your prize now. Verify your details to release funds.",
+    "why": "Prize claim plus credential harvesting. Note the 24-hour deadline does NOT make it urgent — fraud signals win."
+  }
+]
