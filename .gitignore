@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS — never commit. This file is intentionally the first file in the repo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Environment files (real values). Only *.env.example is tracked.
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# n8n runtime data directory. Contains database.sqlite (encrypted credentials)
+# and `config` (the encryption key that decrypts them). Committing this leaks
+# every OAuth token and API key in the instance.
+data/
+**/data/
+
+# n8n databases and their write-ahead logs
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# n8n encryption key / config
+config
+**/.n8n/
+
+# Credential exports. `n8n export:credentials --decrypted` writes PLAINTEXT
+# secrets — that command must never be run (see SECURITY.md).
+*.credentials.json
+credentials.json
+credentials/
+
+# Generic secret material
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+*.age
+service-account*.json
+client_secret*.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build / tooling
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+coverage/
+*.tsbuildinfo
+dist/
+build/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editors / OS
+# ─────────────────────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local scratch
+# ─────────────────────────────────────────────────────────────────────────────
+tmp/
+temp/
+scratch/
+*.local
+*.bak
+backups/

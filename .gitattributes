@@ -1,0 +1,25 @@
+# Normalise line endings on commit. Without this, Windows CRLF would corrupt
+# workflow JSON diffs and break the round-trip determinism test (`make export`
+# must produce a byte-identical file).
+* text=auto eol=lf
+
+# Workflow exports are machine-generated. Force LF and mark them so GitHub
+# collapses them in PR diffs by default — reviewers should read the README and
+# ADRs, not a 400-line generated JSON blob.
+*.json      text eol=lf
+workflows/**/workflow.json linguist-generated=true
+
+# Shell scripts must keep LF or they fail to execute inside containers.
+*.sh        text eol=lf
+Makefile    text eol=lf
+*.mjs       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.md        text eol=lf
+
+# Binary assets — never diff or normalise.
+*.png       binary
+*.jpg       binary
+*.gif       binary
+*.webp      binary
+*.pdf       binary
