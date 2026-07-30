@@ -1,0 +1,21 @@
+{
+  "name": "__NAME__",
+  "nodes": [
+    {
+      "id": "placeholder-manual-trigger",
+      "name": "Start",
+      "parameters": {},
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "description": "Replace this file by running: make export WORKFLOW=__SLUG__"
+}

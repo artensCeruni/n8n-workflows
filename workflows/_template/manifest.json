@@ -1,0 +1,12 @@
+{
+  "slug": "__SLUG__",
+  "name": "__NAME__",
+  "description": "One or two sentences: what this workflow does and what it produces. Shown in the README index.",
+  "status": "draft",
+  "trigger": "TODO (e.g. Schedule (daily 08:00), Webhook, Gmail poll (1 min))",
+  "tags": [],
+  "n8nId": "",
+  "minN8nVersion": "2.23.4",
+  "credentials": [],
+  "configNodes": {}
+}
