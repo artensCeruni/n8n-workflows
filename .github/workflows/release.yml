@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Never ship a tag that would not have passed CI.
+      - name: Validate and test
+        run: |
+          npm run validate
+          npm test
+
+      - name: Bundle workflow definitions
+        run: |
+          mkdir -p dist
+          for dir in workflows/*/; do
+            slug=$(basename "$dir")
+            case "$slug" in _*) continue ;; esac
+            [ -f "$dir/manifest.json" ] || continue
+            cp "$dir/workflow.json" "dist/$slug.workflow.json"
+          done
+          tar -czf "dist/n8n-workflows-${GITHUB_REF_NAME}.tar.gz" \
+            workflows infra docs tooling README.md LICENSE
+          ls -la dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.workflow.json
+            dist/*.tar.gz
+          body: |
+            Import a single workflow with `make import`, or drop the individual
+            `*.workflow.json` files straight into n8n.
+
+            Credentials bind by name and are never included — see
+            [docs/CREDENTIALS.md](docs/CREDENTIALS.md).

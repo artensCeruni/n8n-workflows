@@ -1,0 +1,33 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore(ci)'
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  # n8n is pinned in infra/docker-compose.yml on purpose. Dependabot opens the PR;
+  # a human decides, because a major bump can silently change node behaviour —
+  # 2.0 blocked $env access. Read the breaking changes before merging.
+  - package-ecosystem: docker
+    directory: '/infra'
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore(infra)'
+    open-pull-requests-limit: 3

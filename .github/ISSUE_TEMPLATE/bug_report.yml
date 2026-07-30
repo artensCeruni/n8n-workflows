@@ -1,0 +1,83 @@
+name: Bug report
+description: A workflow, script, or the Docker setup is not behaving correctly
+labels: [bug]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you post:** please do not paste API keys, OAuth tokens, refresh
+        tokens, real email addresses, or the contents of `infra/data/config`.
+        Redact them — n8n error output often embeds request details.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Workflow — email-ai-classifier
+        - Tooling (export / import / validate / tests)
+        - Infra (Docker, Compose)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the error message, redacted.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. make up
+        2. make import
+        3. Click Inject Test Emails
+        4. The spam branch fails with…
+    validations:
+      required: true
+
+  - type: input
+    id: n8n-version
+    attributes:
+      label: n8n version
+      description: From Settings → About, or the pin in infra/docker-compose.yml
+      placeholder: 2.23.4
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: How you run n8n
+      placeholder: Docker Compose on Windows 11 / n8n Cloud / bare npm
+    validations:
+      required: true
+
+  - type: textarea
+    id: checks
+    attributes:
+      label: Output of `make check`
+      description: Often identifies the problem directly.
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have removed all secrets and personal data from this report
+          required: true

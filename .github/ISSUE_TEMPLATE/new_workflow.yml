@@ -1,0 +1,74 @@
+name: New workflow proposal
+description: Propose a new automation to add under workflows/
+labels: [new-workflow]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every workflow here is a self-contained project with its own README,
+        tests and ADRs — see [docs/CONVENTIONS.md](../../docs/CONVENTIONS.md).
+        This template captures what the manifest will need.
+
+  - type: input
+    id: slug
+    attributes:
+      label: Proposed slug
+      description: lowercase kebab-case, starting with a letter
+      placeholder: slack-digest
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: What it does
+      description: One or two sentences — this becomes the manifest description.
+    validations:
+      required: true
+
+  - type: input
+    id: trigger
+    attributes:
+      label: Trigger
+      placeholder: Schedule (daily 08:00) / Webhook / Gmail poll (1 min)
+    validations:
+      required: true
+
+  - type: textarea
+    id: services
+    attributes:
+      label: Services and credentials required
+      placeholder: |
+        - Slack (slackApi) — post to #digest
+        - Google Gemini (googlePalmApi) — summarisation
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Per-installation values
+      description: >
+        Anything account-specific — channel ids, email addresses, label ids.
+        These become Config node fields with placeholders, never literals.
+      placeholder: |
+        - slackChannelId
+        - digestRecipient
+
+  - type: textarea
+    id: side-effects
+    attributes:
+      label: Side effects and idempotency
+      description: >
+        What does it write to the outside world, and what stops it doing that
+        twice? A trigger that filters on mutable state (unread mail, an open
+        ticket) needs an explicit terminator — see ADR-0002.
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants worth testing
+      description: What must stay true that a future edit could silently break?

@@ -1,0 +1,50 @@
+name: Feature request
+description: Improve an existing workflow, the tooling, or the infra
+labels: [enhancement]
+
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Workflow — email-ai-classifier
+        - Tooling (export / import / validate / tests)
+        - Infra (Docker, Compose)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is awkward or missing today? Describe the situation, not the fix.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >
+        If this changes a documented decision, say which ADR and why the
+        trade-off should be revisited.
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - label: Changes an exported workflow.json
+        - label: Changes the manifest schema or tooling contract
+        - label: Requires a new credential or scope
+        - label: Needs a new or updated ADR

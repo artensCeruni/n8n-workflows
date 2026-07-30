@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Keep in step with infra/docker-compose.yml.
+  N8N_IMAGE: n8nio/n8n:2.23.4
+
+jobs:
+  # Enumerate workflow projects from the filesystem so adding one never requires
+  # editing this file.
+  discover:
+    name: Discover workflows
+    runs-on: ubuntu-latest
+    outputs:
+      slugs: ${{ steps.find.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: find
+        run: |
+          slugs=$(find workflows -mindepth 1 -maxdepth 1 -type d \
+                    -not -name '_*' -not -name '.*' \
+                    -exec test -f '{}/manifest.json' \; -print \
+                  | xargs -r -n1 basename \
+                  | sort \
+                  | jq -R . | jq -sc .)
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+          echo "Discovered: $slugs"
+
+      - name: Fail if no workflows were discovered
+        run: |
+          test "${{ steps.find.outputs.slugs }}" != "[]" \
+            || (echo "::error::no workflow projects found under workflows/" && exit 1)
+
+  validate:
+    name: Validate & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate manifests, schemas and config placeholders
+        run: npm run validate
+
+      - name: Shared invariants + per-workflow invariants
+        run: npm test
+
+  docs:
+    name: Docs are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Generated from the manifests, so drift is a build failure rather than
+      # something noticed months later.
+      - name: README workflow index matches the manifests
+        run: npm run readme:check
+
+      - name: Formatting
+        run: npm run format:check
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret removed from HEAD is still a leaked secret.
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Base profile renders
+        run: |
+          cp infra/.env.example infra/.env
+          sed -i 's/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=ci-placeholder-not-a-real-key/' infra/.env
+          docker compose -f infra/docker-compose.yml config >/dev/null
+
+      - name: Production overlay renders
+        run: |
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-placeholder/' infra/.env
+          docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config >/dev/null
+
+  import-smoke:
+    name: Imports into a clean n8n
+    runs-on: ubuntu-latest
+    needs: [discover, validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: ${{ fromJSON(needs.discover.outputs.slugs) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Proves the committed JSON is something a fresh n8n actually accepts —
+      # schema validity alone does not guarantee that.
+      - name: n8n import:workflow accepts workflows/${{ matrix.slug }}
+        run: |
+          docker run --rm \
+            -v "$PWD/workflows/${{ matrix.slug }}:/wf:ro" \
+            -e N8N_ENCRYPTION_KEY=ci-placeholder-not-a-real-key \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            --entrypoint sh \
+            ${{ env.N8N_IMAGE }} \
+            -c "n8n import:workflow --input=/wf/workflow.json"
+
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [validate, docs, secrets, compose, import-smoke]
+    steps:
+      - name: Fail if any job failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "job results: $results"
+          for result in $results; do
+            [ "$result" = "success" ] || exit 1
+          done
