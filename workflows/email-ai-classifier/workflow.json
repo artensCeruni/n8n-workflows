@@ -1,0 +1,766 @@
+{
+  "name": "Email AI Classifier",
+  "nodes": [
+    {
+      "id": "32a7d26c-6f77-4d84-a87d-29a8ac0bc0ac",
+      "name": "Sticky Note 5aafbb59",
+      "parameters": {
+        "color": 2,
+        "content": "## 📧 Email AI Classifier\n\n**Flow:**\n1. Gmail polls every minute (filter: `in:inbox`, unread)\n2. **Config** holds the two per-account values —\n   `alertEmail` and `spamLabelId`. Edit them here;\n   nothing else hardcodes them.\n3. Google Gemini 2.5 Flash classifies:\n   urgent / sales / personal / spam\n4. Urgent → email alert to `Config.alertEmail`\n5. Sales/Personal → threaded draft reply in Gmail\n6. Spam → `Config.spamLabelId` label, message STAYS\n   in inbox (the system SPAM label is deliberately\n   not used: a false positive would hide real mail\n   and would also train Gmail's own spam filter)\n7. Every branch ends at **Mark as Processed**, which\n   marks the email read so the next poll cannot pick\n   it up again. On failure it stays unread and is\n   retried on the next cycle.\n\n**Credentials (bound by name):**\n- `Gmail account` — Gmail OAuth2\n- `Google Gemini(PaLM) Api account` — Gemini\n\nNo OpenAI and no Slack are used by this workflow.",
+        "height": 248,
+        "width": 332
+      },
+      "position": [
+        16,
+        -16
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "ba6d487e-987b-4280-9ae3-eaf69a86594c",
+      "name": "New Gmail Email",
+      "parameters": {
+        "filters": {
+          "q": "in:inbox"
+        },
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false
+      },
+      "position": [
+        80,
+        288
+      ],
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "0d7a59d1-fa5d-468c-81fc-790d1d5f1e04",
+      "name": "Extract Email Fields",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "emailId",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "f2",
+              "name": "threadId",
+              "type": "string",
+              "value": "={{ $json.threadId }}"
+            },
+            {
+              "id": "f3",
+              "name": "from",
+              "type": "string",
+              "value": "={{ $json.from?.text ?? $json.from ?? $json.From ?? '' }}"
+            },
+            {
+              "id": "f4",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.subject ?? $json.Subject ?? '' }}"
+            },
+            {
+              "id": "f5",
+              "name": "body",
+              "type": "string",
+              "value": "={{ ($json.text ?? $json.snippet ?? $json.textAsHtml ?? '').toString().slice(0, 4000) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        352,
+        288
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "4d9f070c-5041-4c3e-b978-ccc240253aac",
+      "name": "Classify Email",
+      "parameters": {
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an email triage classifier. You ALWAYS respond by calling the `format_final_json_response` tool. You NEVER ask questions and you NEVER reply in plain text.\n\nClassify the email into exactly one category:\n- urgent: requires action TODAY, or mentions an outage, emergency, deadline within 24h, or critical failure. Time-sensitivity wins even if the sender is a sales contact.\n- sales: commercial offer, product pitch, cold outreach, promotion, or newsletter, with NO time pressure.\n- personal: from a friend, family member, or colleague writing informally. Social invitations, personal check-ins, casual conversation.\n- spam: unsolicited bulk email, scam, phishing, suspicious links, prize announcements, crypto schemes, or anything fraudulent.\n\nEDGE CASES (apply these before deciding):\n- Sales rep BUT mentions urgency (e.g. 'your trial expires today', 'server issue with our service') -> urgent\n- Looks personal BUT contains a suspicious link or prize claim -> spam\n- Newsletter with a limited-time offer -> sales, not urgent\n- Genuinely ambiguous between two categories -> pick the higher-risk one (urgent > personal > sales > spam)\n\nFIELDS TO RETURN:\n- category: exactly one of urgent, sales, personal, spam.\n- reason: one sentence explaining your choice.\n- draft_reply: decide this from the category YOU just chose. If your category is \"sales\" or \"personal\", write a friendly, professional reply of 2-3 sentences addressed to the sender. If your category is \"urgent\" or \"spam\", set draft_reply to the empty string \"\". Always include the draft_reply field."
+        },
+        "promptType": "define",
+        "text": "=From: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}"
+      },
+      "position": [
+        608,
+        288
+      ],
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1
+    },
+    {
+      "id": "fde654f9-807c-41ba-b463-5fab18a36478",
+      "name": "Classification Parser",
+      "parameters": {
+        "autoFix": true,
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"category\": {\n      \"type\": \"string\",\n      \"enum\": [\"urgent\", \"sales\", \"personal\", \"spam\"],\n      \"description\": \"Exactly one triage category\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence explaining the classification\"\n    },\n    \"draft_reply\": {\n      \"type\": \"string\",\n      \"description\": \"2-3 sentence reply for sales/personal, empty string for urgent/spam\"\n    }\n  },\n  \"required\": [\"category\", \"reason\", \"draft_reply\"],\n  \"additionalProperties\": false\n}",
+        "schemaType": "manual"
+      },
+      "position": [
+        752,
+        688
+      ],
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3
+    },
+    {
+      "id": "78f56919-7a31-4f2f-95e6-655b4a58a489",
+      "name": "Merge Classification",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m1",
+              "name": "emailId",
+              "type": "string",
+              "value": "={{ $('Extract Email Fields').item.json.emailId }}"
+            },
+            {
+              "id": "m2",
+              "name": "threadId",
+              "type": "string",
+              "value": "={{ $('Extract Email Fields').item.json.threadId }}"
+            },
+            {
+              "id": "m3",
+              "name": "from",
+              "type": "string",
+              "value": "={{ $('Extract Email Fields').item.json.from }}"
+            },
+            {
+              "id": "m4",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $('Extract Email Fields').item.json.subject }}"
+            },
+            {
+              "id": "m5",
+              "name": "body",
+              "type": "string",
+              "value": "={{ $('Extract Email Fields').item.json.body }}"
+            },
+            {
+              "id": "m6",
+              "name": "category",
+              "type": "string",
+              "value": "={{ $json.output?.category ?? $json.category }}"
+            },
+            {
+              "id": "m7",
+              "name": "reason",
+              "type": "string",
+              "value": "={{ $json.output?.reason ?? $json.reason }}"
+            },
+            {
+              "id": "m8",
+              "name": "draft_reply",
+              "type": "string",
+              "value": "={{ $json.output?.draft_reply ?? $json.draft_reply }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        912,
+        288
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "3a64c98f-3e44-4cb2-be65-2b3b522ce408",
+      "name": "Route by Category",
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "spam"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "f8204135-1bec-4b3d-a7f6-6173194c45c0",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "urgent"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "400913ce-600d-4a31-8f20-26c580de874a",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "sales"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "4f957395-3951-4ab8-9ab5-ae7bfe050cf8",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "personal"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      "position": [
+        1168,
+        288
+      ],
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "b9508651-93b6-472c-8862-3698c2f24b78",
+      "name": "Draft Sales Reply",
+      "parameters": {
+        "message": "={{ $json.draft_reply }}",
+        "options": {
+          "sendTo": "={{ $json.from }}",
+          "threadId": "={{ $json.threadId }}"
+        },
+        "resource": "draft",
+        "subject": "=Re: {{ $json.subject }}"
+      },
+      "position": [
+        1424,
+        288
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "bf114a8f-b33c-4f9c-abd6-ed2cf0bb15e1",
+      "name": "Draft Personal Reply",
+      "parameters": {
+        "message": "={{ $json.draft_reply }}",
+        "options": {
+          "sendTo": "={{ $json.from }}",
+          "threadId": "={{ $json.threadId }}"
+        },
+        "resource": "draft",
+        "subject": "=Re: {{ $json.subject }}"
+      },
+      "position": [
+        1424,
+        464
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "e4df7d0c-d9d2-483f-8b94-74a9aeffc845",
+      "name": "Label as AI Spam",
+      "parameters": {
+        "labelIds": [
+          "={{ $('Config').first().json.spamLabelId }}"
+        ],
+        "messageId": "={{ $json.emailId }}",
+        "operation": "addLabels"
+      },
+      "position": [
+        1424,
+        656
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "24079ea7-05d1-4c4b-b8ae-48329b06693e",
+      "name": "Google Gemini Chat Model",
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "position": [
+        464,
+        496
+      ],
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "79f3c186-f288-4fd5-8e80-3cde04e3eefd",
+      "name": "Email Urgent Alert",
+      "parameters": {
+        "emailType": "text",
+        "message": "=URGENT EMAIL RECEIVED\n\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\nReason: {{ $json.reason }}\n\nPreview:\n{{ $json.body }}",
+        "operation": "send",
+        "options": {},
+        "resource": "message",
+        "sendTo": "={{ $('Config').first().json.alertEmail }}",
+        "subject": "=🚨 URGENT: {{ $json.subject }}"
+      },
+      "position": [
+        1424,
+        112
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "disabled": false,
+      "id": "a2b5cc22-17d9-4453-ab7c-42254f636c76",
+      "name": "Inject Test Emails",
+      "parameters": {},
+      "position": [
+        80,
+        960
+      ],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "3d04e8a9-6044-4ac1-9f49-477ad46d13db",
+      "name": "Generate 4 Test Emails",
+      "parameters": {
+        "jsCode": "const emails = [\n  {\n    expectedCategory: 'urgent',\n    subject: 'PRODUCTION OUTAGE - API down, customers affected',\n    body: 'Our production API has been returning 500s for the last 20 minutes. This is impacting all customers. We need someone to jump on a call immediately and acknowledge before the SLA window closes today.'\n  },\n  {\n    expectedCategory: 'sales',\n    subject: 'Cut your reporting time by 40% with GrowthTools',\n    body: 'Hi there, I noticed your team is scaling fast. GrowthTools helps companies like yours automate analytics dashboards. Would you be open to a quick 15-minute demo next week? No rush at all.'\n  },\n  {\n    expectedCategory: 'personal',\n    subject: 'Dinner this weekend?',\n    body: 'Hey! It has been way too long since we caught up. Are you free for dinner on Saturday? Thinking that little Italian place we love. Let me know what works for you!'\n  },\n  {\n    expectedCategory: 'spam',\n    subject: 'Congratulations!!! You have WON a $1,000 gift card',\n    body: 'Dear lucky user, you have been selected to receive a $1000 Amazon gift card. Click the link below within 24 hours to claim your prize now. Verify your details to release funds.'\n  }\n];\n\nreturn emails.map(e => ({ json: e }));"
+      },
+      "position": [
+        352,
+        960
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "d40ee23a-59d9-49c7-a719-8bfc24a77de0",
+      "name": "Send Test Email To Self",
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "={{ $('Test Config').first().json.testInbox }}",
+        "subject": "={{ $json.subject }}"
+      },
+      "position": [
+        624,
+        960
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "3fbce374-a0fe-4c32-996a-f59644b0670c",
+      "name": "Test Injector Note",
+      "parameters": {
+        "color": 4,
+        "content": "## 🧪 Test Email Injector\n\nClick **Inject Test Emails** to send 4 emails (urgent / sales / personal / spam) to the address in **Test Config**.\n\nSend that mail to an inbox the Gmail Trigger above watches — then the AI classifies and routes it end to end. Standalone branch: runs independently of the live classifier trigger.",
+        "height": 220,
+        "width": 760
+      },
+      "position": [
+        -112,
+        720
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "8f0f484a-4596-4826-a5d1-cb6fb45fce83",
+      "name": "Mark as Processed",
+      "parameters": {
+        "messageId": "={{ $('Merge Classification').item.json.emailId }}",
+        "operation": "markAsRead",
+        "resource": "message"
+      },
+      "position": [
+        1712,
+        400
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "4d6e6593-09d5-4a8a-b9f4-16f306ba8805",
+      "name": "Config",
+      "notes": "Edit these two values for your own account. Everything downstream reads them via $('Config').",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-alert-email",
+              "name": "alertEmail",
+              "type": "string",
+              "value": "you@example.com"
+            },
+            {
+              "id": "cfg-spam-label",
+              "name": "spamLabelId",
+              "type": "string",
+              "value": "Label_XXXXXXXXXXXXXXXXXX"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "mode": "manual",
+        "options": {}
+      },
+      "position": [
+        216,
+        288
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "319b765b-f5f5-4b10-9bf4-d7f87a7fafd5",
+      "name": "Test Config",
+      "notes": "Inbox the test injector sends to. Must be an address the Gmail Trigger above watches.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-test-inbox",
+              "name": "testInbox",
+              "type": "string",
+              "value": "you@example.com"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "mode": "manual",
+        "options": {}
+      },
+      "position": [
+        216,
+        960
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "disabled": true,
+      "id": "2d4388bb-220b-429b-97e5-adab5d1dd1c2",
+      "name": "Bootstrap: List Gmail Labels",
+      "notes": "Run once to find your AI/Spam label id, then paste it into the Config node. Stays disabled.",
+      "parameters": {
+        "operation": "getAll",
+        "resource": "label",
+        "returnAll": true
+      },
+      "position": [
+        80,
+        480
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    }
+  ],
+  "connections": {
+    "Classification Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "index": 0,
+            "node": "Classify Email",
+            "type": "ai_outputParser"
+          }
+        ]
+      ]
+    },
+    "Classify Email": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Merge Classification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Extract Email Fields",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Draft Personal Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Draft Sales Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Email Urgent Alert": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extract Email Fields": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Classify Email",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Generate 4 Test Emails": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send Test Email To Self",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "index": 0,
+            "node": "Classify Email",
+            "type": "ai_languageModel"
+          },
+          {
+            "index": 0,
+            "node": "Classification Parser",
+            "type": "ai_languageModel"
+          }
+        ]
+      ]
+    },
+    "Inject Test Emails": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Test Config",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Label as AI Spam": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Merge Classification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Route by Category",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "New Gmail Email": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Config",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Email Urgent Alert",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Draft Sales Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Draft Personal Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Label as AI Spam",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Test Config": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Generate 4 Test Emails",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "description": "Classify Emails by Ai Agents",
+  "nodeGroups": []
+}

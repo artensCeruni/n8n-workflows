@@ -1,0 +1,37 @@
+{
+  "slug": "email-ai-classifier",
+  "name": "Email AI Classifier",
+  "description": "Triages incoming Gmail with Google Gemini into urgent / sales / personal / spam, then alerts, drafts a reply, or labels — and marks each message processed so it is never handled twice.",
+  "status": "live",
+  "trigger": "Gmail poll (1 min)",
+  "tags": ["gmail", "gemini", "ai-agent", "triage"],
+  "n8nId": "veg0Vp02D3vWNpHO",
+  "minN8nVersion": "2.23.4",
+  "credentials": [
+    {
+      "type": "gmailOAuth2",
+      "name": "Gmail account",
+      "purpose": "Read inbox, create drafts, add labels, mark as read, send alerts",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.labels",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose"
+      ]
+    },
+    {
+      "type": "googlePalmApi",
+      "name": "Google Gemini(PaLM) Api account",
+      "purpose": "Classification via models/gemini-2.5-flash",
+      "obtainFrom": "https://aistudio.google.com/apikey"
+    }
+  ],
+  "configNodes": {
+    "Config": {
+      "alertEmail": "you@example.com",
+      "spamLabelId": "Label_XXXXXXXXXXXXXXXXXX"
+    },
+    "Test Config": {
+      "testInbox": "you@example.com"
+    }
+  }
+}
