@@ -1,0 +1,76 @@
+# n8n runtime — SQLite profile.
+#
+# This is the default and mirrors a straightforward single-user self-hosted
+# setup. For Postgres, healthchecked startup ordering and resource limits, layer
+# the production overlay on top:
+#
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up -d
+#
+# Copy .env.example to .env before the first start. N8N_ENCRYPTION_KEY in
+# particular must be set explicitly — see the notes in .env.example.
+
+name: n8n-workflows
+
+services:
+  n8n:
+    # Pinned deliberately. `latest` makes the stack unreproducible: a rebuild
+    # months from now would silently pull a different minor version, and n8n
+    # ships breaking changes across majors (2.0 blocked $env access in nodes).
+    image: n8nio/n8n:2.23.4
+    container_name: n8n
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      # ── Identity / URLs ───────────────────────────────────────────────────
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+
+      # ── Timezone ──────────────────────────────────────────────────────────
+      # Without this n8n defaults to America/New_York, which silently shifts
+      # every cron trigger and every $now in an expression.
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Tirane}
+      TZ: ${GENERIC_TIMEZONE:-Europe/Tirane}
+
+      # ── Security ──────────────────────────────────────────────────────────
+      # Encrypts stored credentials. If unset, n8n generates one into
+      # data/config on first boot — making that file the only copy of the key
+      # that can decrypt your credentials. Set it explicitly and back it up.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required - see infra/.env.example}
+      # Left at the secure default (env access blocked). Workflows in this repo
+      # read configuration from a Config node instead, so they do not need it
+      # relaxed — see docs/adr/0004-config-node-over-env-vars.md.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'true'
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_VERSION_NOTIFICATIONS_ENABLED: 'false'
+
+      # ── Runtime ───────────────────────────────────────────────────────────
+      N8N_RUNNERS_ENABLED: 'true'
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-336}
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}
+
+    ports:
+      - '${N8N_PORT:-5678}:5678'
+
+    volumes:
+      # Holds database.sqlite (encrypted credentials) and config (the key).
+      # Git-ignored, and must stay that way — see SECURITY.md.
+      - ./data:/home/node/.n8n
+
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:5678/healthz || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
