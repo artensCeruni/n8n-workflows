@@ -77,6 +77,23 @@ each removal fixes a specific way a naive export breaks or leaks.
 Then keys are sorted recursively and the file is written as 2-space JSON with a
 trailing newline.
 
+### Two import paths, one of which needs an id
+
+Stripping `id` has a consequence worth knowing, because it is invisible until you
+hit it:
+
+| Path                                        | Needs `id`? | Why                                                                          |
+| ------------------------------------------- | ----------- | ---------------------------------------------------------------------------- |
+| `POST /workflows` — what `make import` uses | No          | The API generates one                                                        |
+| `n8n import:workflow` — the CLI             | **Yes**     | Inserts straight into the database, where `workflow_entity.id` is `NOT NULL` |
+
+So the committed JSON imports cleanly through the API and fails through the CLI
+with `SQLITE_CONSTRAINT: NOT NULL constraint failed: workflow_entity.id`. The CI
+smoke test therefore injects a throwaway id before invoking the CLI: what is
+under test is the document's shape, not its identity.
+
+If you import by hand, prefer `make import`.
+
 **Determinism matters more than it sounds.** Without sorted keys, the n8n API
 returning fields in a different order would rewrite the file on every export,
 burying real changes in noise. A test asserts the committed file equals

@@ -94,10 +94,19 @@ jobs:
           # Full history: a secret removed from HEAD is still a leaked secret.
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Run gitleaks directly rather than via gitleaks-action. The action scans
+      # the push range `<before>^..<after>`, which is an invalid revision when
+      # the range includes the root commit — so it fails on a repository's first
+      # push having scanned nothing at all. `detect` walks the whole history
+      # unconditionally, which is what we actually want anyway.
+      #
+      # Unpinned on purpose, unlike the n8n image: for a scanner, the newest
+      # rule set is the point. A pinned scanner silently stops detecting
+      # credential formats invented after the pin.
+      - name: gitleaks over full history
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=. --config=.gitleaks.toml --redact --verbose --no-banner
 
   compose:
     name: Compose config
@@ -129,10 +138,23 @@ jobs:
 
       # Proves the committed JSON is something a fresh n8n actually accepts —
       # schema validity alone does not guarantee that.
+      #
+      # The CLI inserts straight into the database, so it requires a workflow
+      # `id` (NOT NULL) — unlike POST /workflows, which generates one. The repo
+      # strips ids deliberately, since an id names a row in one instance's
+      # database (see tooling/lib/sanitize.mjs), so add a throwaway one here.
+      # What is under test is the document's shape, not its identity.
+      - name: Prepare workflow for CLI import
+        run: |
+          mkdir -p smoke
+          jq --arg id "ci-smoke-${{ matrix.slug }}" '. + {id: $id}' \
+            "workflows/${{ matrix.slug }}/workflow.json" > smoke/workflow.json
+          jq -e '.id and .name and (.nodes | length > 0)' smoke/workflow.json >/dev/null
+
       - name: n8n import:workflow accepts workflows/${{ matrix.slug }}
         run: |
           docker run --rm \
-            -v "$PWD/workflows/${{ matrix.slug }}:/wf:ro" \
+            -v "$PWD/smoke:/wf:ro" \
             -e N8N_ENCRYPTION_KEY=ci-placeholder-not-a-real-key \
             -e N8N_DIAGNOSTICS_ENABLED=false \
             --entrypoint sh \
