@@ -24,7 +24,11 @@ updates:
   # n8n is pinned in infra/docker-compose.yml on purpose. Dependabot opens the PR;
   # a human decides, because a major bump can silently change node behaviour —
   # 2.0 blocked $env access. Read the breaking changes before merging.
-  - package-ecosystem: docker
+  #
+  # `docker-compose`, not `docker`: the `docker` ecosystem only parses Dockerfiles
+  # and Kubernetes manifests, so it aborts here with "No Dockerfiles nor
+  # Kubernetes YAML found". Image tags inside a Compose file need this ecosystem.
+  - package-ecosystem: docker-compose
     directory: '/infra'
     schedule:
       interval: weekly
