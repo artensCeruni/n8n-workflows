@@ -1,0 +1,18 @@
+# Known false positives, ignored by exact fingerprint.
+#
+# Format: <commit>:<path>:<rule-id>:<line>
+#
+# Fingerprints are deliberately narrow — commit, file, rule and line all have to
+# match. A real secret appearing at the same path, or the same false positive
+# recurring in a later commit, is still reported. Never ignore a whole rule or a
+# whole path here; fix the value or add a value-based allowlist in
+# .gitleaks.toml instead.
+
+# The CI placeholder for N8N_ENCRYPTION_KEY in commit afac50e was
+# `ci-placeholder-not-a-real-key`, which is long enough to satisfy the 16+
+# character n8n-encryption-key rule. HEAD uses a shorter value that no longer
+# matches, but `gitleaks detect` scans history, so these two commits keep
+# reporting. Ignored rather than rewritten: history rewriting to silence a
+# false positive costs more than it is worth, and the value was never a secret.
+afac50e9d88f57c17060342dbefd729bee20eae6:.github/workflows/ci.yml:n8n-encryption-key:111
+afac50e9d88f57c17060342dbefd729bee20eae6:.github/workflows/ci.yml:n8n-encryption-key:136

@@ -117,7 +117,7 @@ jobs:
       - name: Base profile renders
         run: |
           cp infra/.env.example infra/.env
-          sed -i 's/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=ci-placeholder-not-a-real-key/' infra/.env
+          sed -i 's/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=ci-dummy/' infra/.env
           docker compose -f infra/docker-compose.yml config >/dev/null
 
       - name: Production overlay renders
@@ -155,7 +155,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD/smoke:/wf:ro" \
-            -e N8N_ENCRYPTION_KEY=ci-placeholder-not-a-real-key \
+            -e N8N_ENCRYPTION_KEY=ci-dummy \
             -e N8N_DIAGNOSTICS_ENABLED=false \
             --entrypoint sh \
             ${{ env.N8N_IMAGE }} \

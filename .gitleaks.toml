@@ -100,3 +100,16 @@ paths = [
   '''\.gitleaks\.toml$''',
   '''(^|/)\.gitignore$''',
 ]
+
+# Matched against the whole source line, not the captured secret.
+#
+# Deliberately value-based rather than path-based: allowlisting a path would
+# stop a genuine secret in that file from ever being reported, whereas these
+# patterns describe constructs that *cannot* contain a literal secret.
+regexTarget = "line"
+regexes = [
+  # Reading a value out of the environment is the opposite of hardcoding one.
+  # Catches gitleaks' default generic-api-key rule firing on lines such as
+  #   const apiKey = env.N8N_API_KEY;
+  '''=\s*(process\.)?env(\.[A-Za-z_][A-Za-z0-9_]*|\[['"][^'"]+['"]\])\s*;?\s*$''',
+]
