@@ -1,0 +1,27 @@
+{
+  "name": "n8n-workflows",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Production n8n workflows as versioned, tested, self-contained projects.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "test": "node --test \"tooling/tests/*.test.mjs\" \"workflows/*/tests/*.test.mjs\"",
+    "validate": "node tooling/bin/validate.mjs",
+    "export": "node tooling/bin/export.mjs",
+    "import": "node tooling/bin/import.mjs",
+    "new-workflow": "node tooling/bin/new-workflow.mjs",
+    "readme": "node tooling/bin/gen-readme.mjs",
+    "readme:check": "node tooling/bin/gen-readme.mjs --check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run validate && npm run readme:check && npm run format:check && npm test"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "prettier": "^3.4.2"
+  }
+}
