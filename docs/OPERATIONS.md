@@ -3,6 +3,43 @@
 Running this after it works. Backup, upgrade, recovery, and the round-trip between
 n8n and the repo.
 
+## Uploading a workflow — the short version
+
+**A workflow you already built in n8n, now going into the repo:**
+
+```bash
+make new-workflow SLUG=slack-digest     # scaffold the project directory
+# open the workflow in n8n, copy its id from the URL, put it in
+# workflows/slack-digest/manifest.json as "n8nId"
+make export WORKFLOW=slack-digest       # pull it in, sanitised
+# fill in manifest.json: credentials, configNodes placeholders, tags, status
+make readme                             # add it to the index table
+make check                              # validate + docs + format + tests
+git add -A && git commit && git push
+```
+
+**A change to a workflow already in the repo:**
+
+```bash
+# edit it on the canvas at http://localhost:5678
+make export
+make check
+git add -A && git commit && git push
+```
+
+That is the whole loop. Nothing in CI, the test matrix or the tooling needs
+touching — projects are discovered from the filesystem.
+
+Two things that catch people out:
+
+- **`n8nId` must be set before `make export` can work.** Without it the tool has
+  no way to know which workflow to fetch, and says so.
+- **`make export` will rewrite your Config node values back to placeholders.**
+  That is deliberate, not a bug — it is what keeps a real address out of a public
+  repo. The live instance keeps the real values.
+
+First time only: `make hooks`, and set `N8N_API_KEY` in `infra/.env`.
+
 ## The round-trip
 
 The repo is the source of truth for workflow **structure**; the running n8n

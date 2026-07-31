@@ -7,7 +7,7 @@ COMPOSE := docker compose -f infra/docker-compose.yml
 COMPOSE_PROD := docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help install up up-prod down restart logs ps shell \
+.PHONY: help install hooks up up-prod down restart logs ps shell \
         export import import-dry validate test check format readme \
         new-workflow backup secrets clean
 
@@ -17,6 +17,11 @@ help: ## Show this help
 
 install: ## Install dev dependencies
 	npm install
+
+hooks: ## Enable the pre-commit hook (run once after cloning)
+	git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "pre-commit hook enabled. Bypass a single commit with: git commit --no-verify"
 
 # ── n8n runtime ──────────────────────────────────────────────────────────────
 

@@ -5,11 +5,47 @@
 ```bash
 git clone https://github.com/artensCeruni/n8n-workflows.git && cd n8n-workflows
 npm install
+make hooks                            # enable the pre-commit hook
 cp infra/.env.example infra/.env      # set N8N_ENCRYPTION_KEY
 make up
 ```
 
 Full walkthrough including credentials: [docs/SETUP.md](docs/SETUP.md).
+
+### No `make`? Use `npm run`
+
+Every `make` target has an npm equivalent, because GNU make is not standard on
+Windows while Node is already required by the tooling:
+
+| make                       | npm                                |
+| -------------------------- | ---------------------------------- |
+| `make hooks`               | `npm run hooks`                    |
+| `make check`               | `npm run check`                    |
+| `make export`              | `npm run export`                   |
+| `make export WORKFLOW=x`   | `npm run export -- --workflow=x`   |
+| `make import-dry`          | `npm run import:dry`               |
+| `make new-workflow SLUG=x` | `npm run new-workflow -- --slug=x` |
+| `make up` / `make down`    | `npm run up` / `npm run down`      |
+
+The rest of this document says `make`; substitute freely.
+
+### `make hooks` is not optional
+
+Git does not version `.git/hooks/`, so a fresh clone has no hook at all. That one
+command points `core.hooksPath` at the versioned `.githooks/` directory.
+
+The hook refuses a commit that would add `infra/.env`, anything under `data/`, a
+real email address, a hardcoded Gmail label id, a credential id, or a
+recognisable API key. When Docker is running it also runs `gitleaks`; when Docker
+is down it says so and continues, because a check that blocks your work is a
+check you will disable.
+
+CI runs all of this too — but only after a push, and a secret that reached GitHub
+is leaked whether or not the build then goes red. The hook is the only layer that
+can stop one from leaving your machine.
+
+`git commit --no-verify` bypasses it. If you do that, run `make check` before
+pushing.
 
 ## The one rule about `workflow.json`
 
