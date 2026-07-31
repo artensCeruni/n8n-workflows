@@ -43,6 +43,9 @@ make import                          # load the workflows
 Then create the two credentials and fill in the Config nodes —
 [full walkthrough](docs/SETUP.md).
 
+No `make`? Every target has an npm equivalent — `npm run up`, `npm run import`,
+`npm run check`. GNU make is not standard on Windows; Node already is.
+
 ## How it is organised
 
 ```
@@ -113,14 +116,15 @@ memory — the path of least resistance is the correct one.
 
 ## Documentation
 
-| Document                              | Contents                                                  |
-| ------------------------------------- | --------------------------------------------------------- |
-| [SETUP.md](docs/SETUP.md)             | From clone to a running, activated workflow               |
-| [CREDENTIALS.md](docs/CREDENTIALS.md) | Gmail OAuth2 and Gemini setup, scopes, the encryption key |
-| [OPERATIONS.md](docs/OPERATIONS.md)   | Round-trip, backup, restore, upgrade, key rotation        |
-| [CONVENTIONS.md](docs/CONVENTIONS.md) | Naming, manifest schema, testing, commits                 |
-| [CONTRIBUTING.md](CONTRIBUTING.md)    | Workflow for changes                                      |
-| [SECURITY.md](SECURITY.md)            | Reporting, and what must never be committed               |
+| Document                                | Contents                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| **[PUBLISHING.md](docs/PUBLISHING.md)** | **The runbook: taking a workflow from n8n to this repo, step by step** |
+| [SETUP.md](docs/SETUP.md)               | From clone to a running, activated workflow                            |
+| [CREDENTIALS.md](docs/CREDENTIALS.md)   | Gmail OAuth2 and Gemini setup, scopes, the encryption key              |
+| [OPERATIONS.md](docs/OPERATIONS.md)     | Round-trip, backup, restore, upgrade, key rotation                     |
+| [CONVENTIONS.md](docs/CONVENTIONS.md)   | Naming, manifest schema, testing, commits                              |
+| [CONTRIBUTING.md](CONTRIBUTING.md)      | Workflow for changes                                                   |
+| [SECURITY.md](SECURITY.md)              | Reporting, and what must never be committed                            |
 
 ### Decision records
 

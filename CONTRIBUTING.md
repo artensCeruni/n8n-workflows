@@ -77,24 +77,27 @@ genuinely should change, update the ADR in the same pull request and say why.
 
 ## Adding a workflow
 
+**Follow [docs/PUBLISHING.md](docs/PUBLISHING.md)** — the full runbook, with what
+each step should print and what to do when it fails.
+
+The outline:
+
 ```bash
-make new-workflow SLUG=slack-digest
+npm run new-workflow -- --slug=slack-digest
+# build it in n8n, copy its id from the URL into manifest.json as "n8nId"
+npm run export -- --workflow=slack-digest
+# declare credentials + a placeholder for every Config field in manifest.json
+# write the README and at least one invariant test
+npm run readme
+npm run check
 ```
-
-Then:
-
-1. Build it in n8n and copy its id from the URL.
-2. Set `n8nId`, `description`, `trigger`, `tags` and `status` in the new
-   `manifest.json`.
-3. `make export WORKFLOW=slack-digest`
-4. Declare each credential the nodes use, and a placeholder for every Config field.
-5. Write the README from the template, and at least one invariant test that encodes
-   a real decision.
-6. `make readme` to add it to the index.
-7. `make check`
 
 Nothing in CI, the test suite or the tooling needs editing — projects are discovered
 from the filesystem.
+
+The step people skip is moving account-specific values (email addresses, Slack
+channels, Drive folder ids, Gmail label ids) into a Config node. Skip it and the
+workflow either leaks something or silently fails to work for anyone else.
 
 ## Configuration and secrets
 
