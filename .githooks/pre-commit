@@ -1,0 +1,146 @@
+#!/bin/sh
+# Pre-commit gate. Install once with:  make hooks
+#
+# CI already runs all of this, but CI runs *after* a push — and a secret that
+# reached GitHub is leaked whether or not the build later goes red. This hook is
+# the only layer that can stop one before it leaves the machine.
+#
+# Ordered fastest-first so the common case costs milliseconds:
+#   1. hard block on files that must never be tracked
+#   2. regex scan of the staged diff
+#   3. repo validation (schema, manifests, config placeholders)
+#   4. gitleaks — only when Docker answers, so a stopped Docker never blocks work
+#
+# Escape hatch: git commit --no-verify. Use it for a genuine emergency, then run
+# `make check` before pushing. CI is the backstop, not a substitute.
+
+set -eu
+
+RED=$(printf '\033[31m')
+YELLOW=$(printf '\033[33m')
+GREEN=$(printf '\033[32m')
+DIM=$(printf '\033[2m')
+OFF=$(printf '\033[0m')
+
+fail() {
+  printf '%s✖ pre-commit: %s%s\n' "$RED" "$1" "$OFF" >&2
+}
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+problems=0
+
+# ── 1. Files that must never be tracked ─────────────────────────────────────
+# .gitignore already covers these; this catches `git add -f` and a .gitignore
+# that someone edited. data/ holds database.sqlite and the encryption key.
+for file in $staged; do
+  case "$file" in
+    *.env | .env | */.env)
+      fail "$file — holds the encryption key, API key and database password"
+      problems=$((problems + 1))
+      ;;
+    data/* | */data/*)
+      fail "$file — n8n data directory: encrypted credentials plus the key that opens them"
+      problems=$((problems + 1))
+      ;;
+    *.sqlite | *.sqlite-shm | *.sqlite-wal | *.db)
+      fail "$file — n8n database"
+      problems=$((problems + 1))
+      ;;
+    config | */config)
+      fail "$file — n8n encryption key"
+      problems=$((problems + 1))
+      ;;
+    *.credentials.json | credentials.json)
+      fail "$file — decrypted credential export"
+      problems=$((problems + 1))
+      ;;
+  esac
+done
+
+# ── 2. Regex scan of added lines only ───────────────────────────────────────
+# Added lines, not whole files: re-committing a file should not re-flag content
+# that was already there and already reviewed.
+added=$(git diff --cached --unified=0 --diff-filter=ACM -- . ':(exclude).githooks/pre-commit' ':(exclude).gitleaks.toml' |
+  grep '^+' | grep -v '^+++' || true)
+
+scan() {
+  pattern=$1
+  label=$2
+  hits=$(printf '%s\n' "$added" | grep -nEi "$pattern" || true)
+  if [ -n "$hits" ]; then
+    fail "$label"
+    printf '%s%s%s\n' "$DIM" "$(printf '%s\n' "$hits" | head -3 | sed 's/^/      /')" "$OFF" >&2
+    problems=$((problems + 1))
+  fi
+}
+
+# Real addresses only. Done as its own block rather than via scan() because the
+# exclusion needs a second grep — POSIX grep -E has no negative lookahead.
+# Reserved example domains (RFC 2606) are what placeholders must use.
+emails=$(printf '%s\n' "$added" |
+  grep -oEi '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' |
+  grep -viE '@(example\.(com|org|net)|users\.noreply\.github\.com|n8n\.io|localhost)' || true)
+if [ -n "$emails" ]; then
+  fail 'real email address — configuration belongs in a Config node placeholder'
+  printf '%s%s%s\n' "$DIM" "$(printf '%s\n' "$emails" | sort -u | head -3 | sed 's/^/      /')" "$OFF" >&2
+  problems=$((problems + 1))
+fi
+
+scan '"Label_[0-9]+"' 'hardcoded Gmail label id — per-account, belongs in a Config node'
+scan 'AIza[0-9A-Za-z_-]{35}' 'Google API key'
+scan 'GOCSPX-[0-9A-Za-z_-]{20,}' 'Google OAuth client secret'
+scan 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.' 'JWT — possibly an n8n API key'
+scan '"id"[[:space:]]*:[[:space:]]*"[A-Za-z0-9]{16}"[[:space:]]*,?[[:space:]]*"name"' 'credential id — exports must bind by name only'
+
+# ── 3. Repo validation ──────────────────────────────────────────────────────
+if printf '%s\n' "$staged" | grep -q '^workflows/'; then
+  if ! node tooling/bin/validate.mjs >/dev/null 2>&1; then
+    fail 'make validate failed — run it to see why'
+    node tooling/bin/validate.mjs 2>&1 | sed 's/^/      /' >&2 || true
+    problems=$((problems + 1))
+  fi
+fi
+
+# ── 4. gitleaks, best effort ────────────────────────────────────────────────
+# Skipped silently when Docker is not running: a security check that blocks work
+# gets disabled, and a disabled check protects nobody. CI runs this
+# unconditionally on every push.
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  # Git Bash rewrites container-side paths — `-w /repo` becomes
+  # `C:/Program Files/Git/repo` and docker refuses it. MSYS_NO_PATHCONV plus the
+  # leading `//` disables that rewriting, and is a no-op on Linux and macOS.
+  gitleaks_out=$(MSYS_NO_PATHCONV=1 docker run --rm \
+    -v "//$(pwd | sed 's|^/||'):/repo:ro" -w //repo \
+    ghcr.io/gitleaks/gitleaks:latest \
+    protect --staged --config=.gitleaks.toml --redact --verbose --no-banner 2>&1) || true
+
+  # Read the verdict, never the exit code. A non-zero exit can equally mean
+  # "found a secret" or "could not start the container", and treating an
+  # unavailable scanner as a violation is how hooks end up disabled.
+  if printf '%s' "$gitleaks_out" | grep -q 'no leaks found'; then
+    : # clean
+  elif printf '%s' "$gitleaks_out" | grep -qE 'leaks found:'; then
+    fail 'gitleaks found a secret in the staged changes'
+    printf '%s' "$gitleaks_out" | grep -E 'RuleID:|File:|Line:' | sed 's/^/      /' >&2 || true
+    problems=$((problems + 1))
+  else
+    printf '%s○ gitleaks could not run — CI will still scan%s\n' "$YELLOW" "$OFF" >&2
+    printf '%s%s%s\n' "$DIM" "$(printf '%s' "$gitleaks_out" | head -2 | sed 's/^/      /')" "$OFF" >&2
+  fi
+else
+  printf '%s○ gitleaks skipped (Docker not running) — CI will still scan%s\n' "$YELLOW" "$OFF" >&2
+fi
+
+if [ "$problems" -gt 0 ]; then
+  printf '\n%s%s problem(s) found. Nothing was committed.%s\n' "$RED" "$problems" "$OFF" >&2
+  printf '%sFix them, or bypass with: git commit --no-verify%s\n' "$DIM" "$OFF" >&2
+  printf '%s(If you bypass, run make check before pushing.)%s\n' "$DIM" "$OFF" >&2
+  exit 1
+fi
+
+printf '%s✔ pre-commit checks passed%s\n' "$GREEN" "$OFF"
