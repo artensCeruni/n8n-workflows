@@ -22,9 +22,10 @@ encode those decisions, and a reproducible runtime.
 
 <!-- workflow-index:start -->
 
-| Workflow                                              | Status  | Trigger            | Nodes | Services                        |
-| ----------------------------------------------------- | ------- | ------------------ | ----- | ------------------------------- |
-| [Email AI Classifier](workflows/email-ai-classifier/) | 🟢 live | Gmail poll (1 min) | 20    | gmail, gemini, ai-agent, triage |
+| Workflow                                                    | Status  | Trigger            | Nodes | Services                                   |
+| ----------------------------------------------------------- | ------- | ------------------ | ----- | ------------------------------------------ |
+| [Email AI Classifier](workflows/email-ai-classifier/)       | 🟢 live | Gmail poll (1 min) | 20    | gmail, gemini, ai-agent, triage            |
+| [Invoice / Receipt Extractor](workflows/invoice-extractor/) | 🟢 live | Gmail poll (1 min) | 32    | gmail, gemini, invoice, ocr, sheets, slack |
 
 <!-- workflow-index:end -->
 
@@ -128,13 +129,16 @@ memory — the path of least resistance is the correct one.
 
 ### Decision records
 
-| ADR                                                                                                        | Decision                                     |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| [0001](docs/adr/0001-monorepo-layout.md)                                                                   | One monorepo of self-contained projects      |
-| [0004](docs/adr/0004-config-node-over-env-vars.md)                                                         | Config node instead of `$env`                |
-| [email-ai-classifier/0001](workflows/email-ai-classifier/docs/adr/0001-custom-ai-spam-label.md)            | Custom spam label, never Gmail's system SPAM |
-| [email-ai-classifier/0002](workflows/email-ai-classifier/docs/adr/0002-mark-as-processed-at-branch-end.md) | Mark read last, so failures retry            |
-| [email-ai-classifier/0003](workflows/email-ai-classifier/docs/adr/0003-gemini-2-5-flash.md)                | `gemini-2.5-flash` over the 2.0 series       |
+| ADR                                                                                                        | Decision                                          |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| [0001](docs/adr/0001-monorepo-layout.md)                                                                   | One monorepo of self-contained projects           |
+| [0004](docs/adr/0004-config-node-over-env-vars.md)                                                         | Config node instead of `$env`                     |
+| [0005](docs/adr/0005-credential-export-aliases.md)                                                         | Rename credentials on export, not on the instance |
+| [email-ai-classifier/0001](workflows/email-ai-classifier/docs/adr/0001-custom-ai-spam-label.md)            | Custom spam label, never Gmail's system SPAM      |
+| [email-ai-classifier/0002](workflows/email-ai-classifier/docs/adr/0002-mark-as-processed-at-branch-end.md) | Mark read last, so failures retry                 |
+| [email-ai-classifier/0003](workflows/email-ai-classifier/docs/adr/0003-gemini-2-5-flash.md)                | `gemini-2.5-flash` over the 2.0 series            |
+| [invoice-extractor/0002](workflows/invoice-extractor/docs/adr/0002-log-and-flag-over-reject.md)            | Log every invoice, flag the doubtful ones         |
+| [invoice-extractor/0003](workflows/invoice-extractor/docs/adr/0003-config-node-must-not-strip-binary.md)   | A Config node must not strip binary data          |
 
 ## Requirements
 

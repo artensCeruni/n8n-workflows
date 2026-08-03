@@ -7,6 +7,27 @@ means a breaking change to the manifest contract or the tooling interface.
 
 ## [Unreleased]
 
+### Added
+
+**Workflow: Invoice / Receipt Extractor**
+
+- Gmail attachments → Google Gemini 2.5 Flash extraction → arithmetic validation →
+  Drive archive → Sheets row → Slack. PDF and image take separate extraction nodes
+  because the Gemini node exposes them as different resources.
+- Four ADRs: one simplified retry rather than N identical ones, log-and-flag rather
+  than reject, the `Set` node's `stripBinary` default that silently deletes every
+  attachment, and a single terminator on all five branches.
+- `tests/invariants.test.mjs` walks the graph from all five routers and proves each
+  output slot reaches `Mark as Processed` — the assertion that stops a missing
+  terminator from reprocessing, and re-billing, the same email every minute.
+
+**Tooling**
+
+- Optional `liveName` on `manifest.credentials[]`: export rewrites an
+  instance-local credential name to the public one, so publishing never requires
+  editing a running instance ([ADR-0005](docs/adr/0005-credential-export-aliases.md)).
+  Enforced by `validate.mjs` and a generic shared test.
+
 ## [1.0.0] — 2026-07-30
 
 First release. Establishes the monorepo and migrates the first workflow into it.

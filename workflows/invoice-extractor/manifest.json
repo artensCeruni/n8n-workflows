@@ -1,0 +1,56 @@
+{
+  "slug": "invoice-extractor",
+  "name": "Invoice / Receipt Extractor",
+  "description": "Watches Gmail for invoice and receipt attachments, extracts structured data with Google Gemini, validates the totals, archives the file in Google Drive, logs a row in Google Sheets, and notifies Slack.",
+  "status": "live",
+  "trigger": "Gmail poll (1 min)",
+  "tags": ["gmail", "gemini", "invoice", "ocr", "sheets", "slack"],
+  "n8nId": "TBy88Kw6MYlO7wBt",
+  "minN8nVersion": "2.23.4",
+  "credentials": [
+    {
+      "type": "gmailOAuth2",
+      "name": "Gmail account",
+      "purpose": "Poll for attachments, mark messages read, send the test invoices",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose"
+      ]
+    },
+    {
+      "type": "googlePalmApi",
+      "name": "Google Gemini(PaLM) Api account",
+      "purpose": "Document and image extraction via models/gemini-2.5-flash",
+      "obtainFrom": "https://aistudio.google.com/apikey"
+    },
+    {
+      "type": "googleDriveOAuth2Api",
+      "name": "Google Drive account",
+      "purpose": "Archive the original attachment and return a shareable link",
+      "scopes": ["https://www.googleapis.com/auth/drive"]
+    },
+    {
+      "type": "googleSheetsOAuth2Api",
+      "name": "Google Sheets account",
+      "purpose": "Append one row per invoice to the Invoices Log",
+      "scopes": ["https://www.googleapis.com/auth/spreadsheets"]
+    },
+    {
+      "type": "slackOAuth2Api",
+      "name": "Slack account",
+      "liveName": "Slack account 2",
+      "purpose": "Post the logged / review-required / failure notifications",
+      "scopes": ["chat:write", "channels:read", "groups:read"]
+    }
+  ],
+  "configNodes": {
+    "Config": {
+      "slackChannelInvoices": "C0XXXXXXXXX",
+      "slackChannelAlerts": "C0XXXXXXXXX",
+      "sheetsDocumentId": "1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    },
+    "Test Config": {
+      "testInbox": "you@example.com"
+    }
+  }
+}

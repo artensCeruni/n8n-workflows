@@ -1,0 +1,1464 @@
+{
+  "name": "Invoice / Receipt Extractor",
+  "nodes": [
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "ad2723f0-7db4-434b-a8ff-aaa8b5324a1b",
+      "name": "New Invoice Email",
+      "parameters": {
+        "filters": {
+          "q": "has:attachment (invoice OR receipt OR fature OR fatura OR fattura OR rechnung)",
+          "readStatus": "unread"
+        },
+        "options": {
+          "dataPropertyAttachmentsPrefixName": "attachment_",
+          "downloadAttachments": true
+        },
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false
+      },
+      "position": [
+        -832,
+        464
+      ],
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4
+    },
+    {
+      "id": "8e20079c-71a6-4711-9911-2641f909475b",
+      "name": "Config",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-slack-invoices",
+              "name": "slackChannelInvoices",
+              "type": "string",
+              "value": "C0XXXXXXXXX"
+            },
+            {
+              "id": "cfg-slack-alerts",
+              "name": "slackChannelAlerts",
+              "type": "string",
+              "value": "C0XXXXXXXXX"
+            },
+            {
+              "id": "cfg-sheets-doc",
+              "name": "sheetsDocumentId",
+              "type": "string",
+              "value": "1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "position": [
+        -608,
+        464
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "4f67244b-a8f6-4bc5-a6a6-f64fb4c47b6b",
+      "name": "Split Attachments",
+      "parameters": {
+        "jsCode": "const allowed = {\n  \"application/pdf\": \"pdf\",\n  \"image/jpeg\": \"image\",\n  \"image/jpg\": \"image\",\n  \"image/png\": \"image\"\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const binary = item.binary || {};\n  let from = \"\";\n  if (typeof j.from === \"string\") { from = j.from; }\n  else if (j.from && typeof j.from.text === \"string\") { from = j.from.text; }\n  else if (j.headers && j.headers.from) { from = String(j.headers.from); }\n  const keys = Object.keys(binary).filter(function (k) { return k.indexOf(\"attachment_\") === 0; });\n  for (const key of keys) {\n    const b = binary[key];\n    const mime = String(b.mimeType || \"\").toLowerCase().split(\";\")[0].trim();\n    out.push({\n      json: {\n        file_name: b.fileName || key,\n        mime_type: mime,\n        file_kind: allowed[mime] || \"unsupported\",\n        source_email: from,\n        email_subject: j.subject || \"\",\n        message_id: j.id || \"\",\n        received_at: j.date || new Date().toISOString()\n      },\n      binary: { data: b }\n    });\n  }\n}\nreturn out;"
+      },
+      "position": [
+        -384,
+        464
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "656772a3-2504-425a-b1f9-6b997b506481",
+      "name": "Route by File Type",
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unsupported"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "9ab27bdc-9ac5-44ef-81b3-e0bf2508b79f",
+                    "leftValue": "={{ $json.file_kind }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "pdf"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "PDF",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "e25dcb0b-173c-43fe-a09e-eb91cf3ef960",
+                    "leftValue": "={{ $json.file_kind }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "image"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Image",
+              "renameOutput": true
+            }
+          ]
+        }
+      },
+      "position": [
+        -176,
+        464
+      ],
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "2f8f6893-99ab-4b1b-920e-6390751f2f3d",
+      "name": "Parse and Validate",
+      "parameters": {
+        "jsCode": "const raw = $json;\nfunction collectText(v) {\n  if (v === null || v === undefined) { return \"\"; }\n  if (typeof v === \"string\") { return v; }\n  if (Array.isArray(v)) { return v.map(collectText).join(\"\\n\"); }\n  if (typeof v === \"object\") {\n    if (typeof v.text === \"string\") { return v.text; }\n    if (v.parts !== undefined) { return collectText(v.parts); }\n    if (v.content !== undefined) { return collectText(v.content); }\n  }\n  return \"\";\n}\nlet text = \"\";\nif (Array.isArray(raw.candidates)) { text = collectText(raw.candidates); }\nelse if (raw.content !== undefined) { text = collectText(raw.content); }\nelse if (typeof raw.text === \"string\") { text = raw.text; }\nelse if (typeof raw.response === \"string\") { text = raw.response; }\n\nlet cleaned = String(text).trim();\ncleaned = cleaned.replace(/^```(?:json)?/i, \"\").replace(/```$/, \"\").trim();\nconst start = cleaned.indexOf(\"{\");\nconst end = cleaned.lastIndexOf(\"}\");\nif (start !== -1 && end !== -1 && end > start) { cleaned = cleaned.slice(start, end + 1); }\n\nlet src;\ntry { src = $(\"Split Attachments\").item; } catch (e) { src = $(\"Split Attachments\").first(); }\nconst meta = src.json || {};\n\nlet data = null;\nlet parseOk = true;\nlet parseError = \"\";\ntry { data = JSON.parse(cleaned); } catch (err) { parseOk = false; parseError = err.message; }\nif (parseOk && (data === null || typeof data !== \"object\" || Array.isArray(data))) { parseOk = false; parseError = \"model did not return a JSON object\"; }\nconst d = data || {};\n\nfunction num(v) {\n  if (typeof v === \"number\") { return Number.isFinite(v) ? v : null; }\n  if (v === null || v === undefined || v === \"\") { return null; }\n  const cleanedNum = String(v).replace(/[^0-9.,-]/g, \"\").replace(/,(?=[0-9]{3}\\b)/g, \"\").replace(\",\", \".\");\n  const n = parseFloat(cleanedNum);\n  return Number.isFinite(n) ? n : null;\n}\nfunction safe(s) {\n  return String(s === null || s === undefined || s === \"\" ? \"unknown\" : s).replace(/[\\\\/:*?\"<>|]+/g, \"-\").replace(/\\s+/g, \" \").trim().slice(0, 60);\n}\n\nconst subtotal = num(d.subtotal);\nconst taxAmount = num(d.tax_amount);\nconst totalAmount = num(d.total_amount);\nconst confidence = num(d.confidence_score);\nconst notes = [];\nlet mathOk = false;\n// A receipt with no VAT line is legitimate, so a missing tax is zero rather than\n// a missing figure. Treating it as missing flagged every tax-exempt receipt.\nconst taxForMath = taxAmount === null ? 0 : taxAmount;\nif (subtotal !== null && totalAmount !== null) {\n  const tolerance = Math.max(0.02, Math.abs(totalAmount) * 0.01);\n  mathOk = Math.abs(subtotal + taxForMath - totalAmount) <= tolerance;\n  if (!mathOk) { notes.push(\"subtotal + tax_amount does not equal total_amount\"); }\n  if (taxAmount === null) { notes.push(\"no tax line; treated as 0\"); }\n} else if (parseOk) {\n  notes.push(\"missing subtotal or total_amount\");\n}\nif (confidence === null) { notes.push(\"no confidence_score returned\"); }\nelse if (confidence < 0.6) { notes.push(\"low confidence (\" + confidence + \")\"); }\nif (!parseOk) { notes.push(\"JSON parse failed: \" + parseError); }\n\nconst needsReview = !parseOk || !mathOk || confidence === null || confidence < 0.6;\nconst nameParts = String(meta.file_name || \"file\").split(\".\");\nconst ext = nameParts.length > 1 ? \".\" + nameParts.pop() : \"\";\nconst fileBase = safe(d.vendor_name) + \"_\" + (d.invoice_date || \"no-date\") + \"_\" + safe(d.invoice_number);\n\nreturn {\n  json: {\n    vendor_name: d.vendor_name === undefined ? null : d.vendor_name,\n    vendor_tax_id: d.vendor_tax_id === undefined ? null : d.vendor_tax_id,\n    invoice_number: d.invoice_number === undefined ? null : d.invoice_number,\n    invoice_date: d.invoice_date === undefined ? null : d.invoice_date,\n    due_date: d.due_date === undefined ? null : d.due_date,\n    currency: d.currency === undefined ? null : d.currency,\n    line_items: Array.isArray(d.line_items) ? d.line_items : [],\n    line_items_json: JSON.stringify(Array.isArray(d.line_items) ? d.line_items : []),\n    subtotal: subtotal,\n    tax_amount: taxAmount,\n    tax_rate: num(d.tax_rate),\n    total_amount: totalAmount,\n    payment_terms: d.payment_terms === undefined ? null : d.payment_terms,\n    confidence_score: confidence,\n    parse_ok: parseOk,\n    math_ok: mathOk,\n    needs_review: needsReview,\n    validation_note: notes.join(\"; \"),\n    attempt: 1,\n    source_email: meta.source_email || \"\",\n    email_subject: meta.email_subject || \"\",\n    message_id: meta.message_id || \"\",\n    file_name: meta.file_name || \"\",\n    mime_type: meta.mime_type || \"\",\n    file_kind: meta.file_kind || \"\",\n    target_file_name: fileBase + ext,\n    processed_at: new Date().toISOString(),\n    raw_model_text: String(text).slice(0, 2000)\n  },\n  binary: src.binary\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "position": [
+        304,
+        400
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack account"
+        }
+      },
+      "id": "e7723ce1-e187-465d-85bd-9819b3a03a71",
+      "name": "Unsupported File Alert",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "oAuth2",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.slackChannelAlerts }}"
+        },
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        },
+        "select": "channel",
+        "text": "=⚠️ *Unsupported attachment skipped*\n• File: {{ $json.file_name }} ({{ $json.mime_type }})\n• From: {{ $json.source_email }}\n• Subject: {{ $json.email_subject }}\nOnly PDF, JPG and PNG are processed."
+      },
+      "position": [
+        80,
+        736
+      ],
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5
+    },
+    {
+      "id": "a0d30df9-2259-4e55-9a70-e6a537fff746",
+      "name": "Parsed Successfully?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "9ed6123f-5401-4e31-8db3-9cc887bc3c02",
+              "leftValue": "={{ $json.parse_ok }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "position": [
+        512,
+        400
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3
+    },
+    {
+      "id": "404ab0c6-ef99-4050-a40d-47ba213d9126",
+      "name": "Invoice Ready",
+      "parameters": {},
+      "position": [
+        1616,
+        400
+      ],
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1
+    },
+    {
+      "id": "b4738ee7-5025-4422-ab5e-dee9d2adba08",
+      "name": "Retry Route by File Type",
+      "parameters": {
+        "options": {
+          "fallbackOutput": "none"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.file_kind }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "pdf"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "outputKey": "PDF",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.file_kind }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "image"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              },
+              "outputKey": "Image",
+              "renameOutput": true
+            }
+          ]
+        }
+      },
+      "position": [
+        736,
+        624
+      ],
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "bd88cf64-2340-42f3-89eb-ee5754185f36",
+      "name": "Parse Retry Result",
+      "parameters": {
+        "jsCode": "const raw = $json;\nfunction collectText(v) {\n  if (v === null || v === undefined) { return \"\"; }\n  if (typeof v === \"string\") { return v; }\n  if (Array.isArray(v)) { return v.map(collectText).join(\"\\n\"); }\n  if (typeof v === \"object\") {\n    if (typeof v.text === \"string\") { return v.text; }\n    if (v.parts !== undefined) { return collectText(v.parts); }\n    if (v.content !== undefined) { return collectText(v.content); }\n  }\n  return \"\";\n}\nlet text = \"\";\nif (Array.isArray(raw.candidates)) { text = collectText(raw.candidates); }\nelse if (raw.content !== undefined) { text = collectText(raw.content); }\nelse if (typeof raw.text === \"string\") { text = raw.text; }\nelse if (typeof raw.response === \"string\") { text = raw.response; }\n\nlet cleaned = String(text).trim();\ncleaned = cleaned.replace(/^```(?:json)?/i, \"\").replace(/```$/, \"\").trim();\nconst start = cleaned.indexOf(\"{\");\nconst end = cleaned.lastIndexOf(\"}\");\nif (start !== -1 && end !== -1 && end > start) { cleaned = cleaned.slice(start, end + 1); }\n\nlet src;\ntry { src = $(\"Split Attachments\").item; } catch (e) { src = $(\"Split Attachments\").first(); }\nconst meta = src.json || {};\n\nlet data = null;\nlet parseOk = true;\nlet parseError = \"\";\ntry { data = JSON.parse(cleaned); } catch (err) { parseOk = false; parseError = err.message; }\nif (parseOk && (data === null || typeof data !== \"object\" || Array.isArray(data))) { parseOk = false; parseError = \"model did not return a JSON object\"; }\nconst d = data || {};\n\nfunction num(v) {\n  if (typeof v === \"number\") { return Number.isFinite(v) ? v : null; }\n  if (v === null || v === undefined || v === \"\") { return null; }\n  const cleanedNum = String(v).replace(/[^0-9.,-]/g, \"\").replace(/,(?=[0-9]{3}\\b)/g, \"\").replace(\",\", \".\");\n  const n = parseFloat(cleanedNum);\n  return Number.isFinite(n) ? n : null;\n}\nfunction safe(s) {\n  return String(s === null || s === undefined || s === \"\" ? \"unknown\" : s).replace(/[\\\\/:*?\"<>|]+/g, \"-\").replace(/\\s+/g, \" \").trim().slice(0, 60);\n}\n\nconst subtotal = num(d.subtotal);\nconst taxAmount = num(d.tax_amount);\nconst totalAmount = num(d.total_amount);\nconst confidence = num(d.confidence_score);\nconst notes = [];\nlet mathOk = false;\n// A receipt with no VAT line is legitimate, so a missing tax is zero rather than\n// a missing figure. Treating it as missing flagged every tax-exempt receipt.\nconst taxForMath = taxAmount === null ? 0 : taxAmount;\nif (subtotal !== null && totalAmount !== null) {\n  const tolerance = Math.max(0.02, Math.abs(totalAmount) * 0.01);\n  mathOk = Math.abs(subtotal + taxForMath - totalAmount) <= tolerance;\n  if (!mathOk) { notes.push(\"subtotal + tax_amount does not equal total_amount\"); }\n  if (taxAmount === null) { notes.push(\"no tax line; treated as 0\"); }\n} else if (parseOk) {\n  notes.push(\"missing subtotal or total_amount\");\n}\nif (confidence === null) { notes.push(\"no confidence_score returned\"); }\nelse if (confidence < 0.6) { notes.push(\"low confidence (\" + confidence + \")\"); }\nif (!parseOk) { notes.push(\"JSON parse failed: \" + parseError); }\n\nconst needsReview = !parseOk || !mathOk || confidence === null || confidence < 0.6;\nconst nameParts = String(meta.file_name || \"file\").split(\".\");\nconst ext = nameParts.length > 1 ? \".\" + nameParts.pop() : \"\";\nconst fileBase = safe(d.vendor_name) + \"_\" + (d.invoice_date || \"no-date\") + \"_\" + safe(d.invoice_number);\n\nreturn {\n  json: {\n    vendor_name: d.vendor_name === undefined ? null : d.vendor_name,\n    vendor_tax_id: d.vendor_tax_id === undefined ? null : d.vendor_tax_id,\n    invoice_number: d.invoice_number === undefined ? null : d.invoice_number,\n    invoice_date: d.invoice_date === undefined ? null : d.invoice_date,\n    due_date: d.due_date === undefined ? null : d.due_date,\n    currency: d.currency === undefined ? null : d.currency,\n    line_items: Array.isArray(d.line_items) ? d.line_items : [],\n    line_items_json: JSON.stringify(Array.isArray(d.line_items) ? d.line_items : []),\n    subtotal: subtotal,\n    tax_amount: taxAmount,\n    tax_rate: num(d.tax_rate),\n    total_amount: totalAmount,\n    payment_terms: d.payment_terms === undefined ? null : d.payment_terms,\n    confidence_score: confidence,\n    parse_ok: parseOk,\n    math_ok: mathOk,\n    needs_review: needsReview,\n    validation_note: notes.join(\"; \"),\n    attempt: 2,\n    source_email: meta.source_email || \"\",\n    email_subject: meta.email_subject || \"\",\n    message_id: meta.message_id || \"\",\n    file_name: meta.file_name || \"\",\n    mime_type: meta.mime_type || \"\",\n    file_kind: meta.file_kind || \"\",\n    target_file_name: fileBase + ext,\n    processed_at: new Date().toISOString(),\n    raw_model_text: String(text).slice(0, 2000)\n  },\n  binary: src.binary\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "position": [
+        1184,
+        672
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "8aac5e6c-fd17-4634-aa84-5eeba2caa0d6",
+      "name": "Retry Parsed Successfully?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c8e1573c-4187-4110-b80d-ff57f89d78aa",
+              "leftValue": "={{ $json.parse_ok }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "position": [
+        1392,
+        672
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3
+    },
+    {
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack account"
+        }
+      },
+      "id": "7f9efb17-5efa-49be-88c2-050712621235",
+      "name": "Extraction Failed Alert",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "oAuth2",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.slackChannelAlerts }}"
+        },
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        },
+        "select": "channel",
+        "text": "=⚠️ *Review Required — extraction failed twice*\n• File: {{ $json.file_name }}\n• From: {{ $json.source_email }}\n• Subject: {{ $json.email_subject }}\n• Reason: {{ $json.validation_note }}\nNothing was written to the Invoices Log. Handle this one manually."
+      },
+      "position": [
+        1616,
+        784
+      ],
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5
+    },
+    {
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "name": "Google Drive account"
+        }
+      },
+      "id": "a47259b0-4e3b-4a02-ba3d-42b5b800939f",
+      "name": "Archive Original in Drive",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "driveId": {
+          "__rl": true,
+          "cachedResultName": "My Drive",
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "cachedResultName": "/ (Root folder)",
+          "mode": "list",
+          "value": "root"
+        },
+        "name": "={{ $json.target_file_name }}",
+        "options": {
+          "simplifyOutput": false
+        }
+      },
+      "position": [
+        1840,
+        400
+      ],
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3
+    },
+    {
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets account"
+        }
+      },
+      "id": "20b4ac35-157b-4423-aa91-e4b79ecffe6c",
+      "name": "Append Row to Invoices Log",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "columns": {
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "vendor_name",
+              "id": "vendor_name",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "vendor_tax_id",
+              "id": "vendor_tax_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "invoice_number",
+              "id": "invoice_number",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "invoice_date",
+              "id": "invoice_date",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "due_date",
+              "id": "due_date",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "currency",
+              "id": "currency",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "line_items",
+              "id": "line_items",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "subtotal",
+              "id": "subtotal",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "tax_amount",
+              "id": "tax_amount",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "tax_rate",
+              "id": "tax_rate",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "total_amount",
+              "id": "total_amount",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "payment_terms",
+              "id": "payment_terms",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "confidence_score",
+              "id": "confidence_score",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "source_email",
+              "id": "source_email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "file_name",
+              "id": "file_name",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "processed_at",
+              "id": "processed_at",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "file_link",
+              "id": "file_link",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "attempt",
+              "id": "attempt",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "math_ok",
+              "id": "math_ok",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "needs_review",
+              "id": "needs_review",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "attempt": "={{ $('Invoice Ready').item.json.attempt }}",
+            "confidence_score": "={{ $('Invoice Ready').item.json.confidence_score }}",
+            "currency": "={{ $('Invoice Ready').item.json.currency }}",
+            "due_date": "={{ $('Invoice Ready').item.json.due_date }}",
+            "file_link": "={{ $json.webViewLink }}",
+            "file_name": "={{ $('Invoice Ready').item.json.file_name }}",
+            "invoice_date": "={{ $('Invoice Ready').item.json.invoice_date }}",
+            "invoice_number": "={{ $('Invoice Ready').item.json.invoice_number }}",
+            "line_items": "={{ JSON.stringify($('Invoice Ready').item.json.line_items) }}",
+            "math_ok": "={{ $('Invoice Ready').item.json.math_ok }}",
+            "needs_review": "={{ $('Invoice Ready').item.json.needs_review }}",
+            "payment_terms": "={{ $('Invoice Ready').item.json.payment_terms }}",
+            "processed_at": "={{ $('Invoice Ready').item.json.processed_at }}",
+            "source_email": "={{ $('Invoice Ready').item.json.source_email }}",
+            "subtotal": "={{ $('Invoice Ready').item.json.subtotal }}",
+            "tax_amount": "={{ $('Invoice Ready').item.json.tax_amount }}",
+            "tax_rate": "={{ $('Invoice Ready').item.json.tax_rate }}",
+            "total_amount": "={{ $('Invoice Ready').item.json.total_amount }}",
+            "vendor_name": "={{ $('Invoice Ready').item.json.vendor_name }}",
+            "vendor_tax_id": "={{ $('Invoice Ready').item.json.vendor_tax_id }}"
+          }
+        },
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.sheetsDocumentId }}"
+        },
+        "operation": "append",
+        "options": {},
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gid=0"
+        }
+      },
+      "position": [
+        2064,
+        400
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7
+    },
+    {
+      "id": "5aedda01-10af-404e-ad88-179bf1488e1c",
+      "name": "Review Needed?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Invoice Ready').item.json.needs_review }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "position": [
+        2272,
+        400
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3
+    },
+    {
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack account"
+        }
+      },
+      "id": "53348638-2137-4e70-8e17-bf046bbc977b",
+      "name": "Review Required Notification",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "oAuth2",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.slackChannelAlerts }}"
+        },
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        },
+        "select": "channel",
+        "text": "=⚠️ *Review Required*\n• Vendor: {{ $('Invoice Ready').item.json.vendor_name }}\n• Invoice: {{ $('Invoice Ready').item.json.invoice_number }}\n• Total: {{ $('Invoice Ready').item.json.total_amount }} {{ $('Invoice Ready').item.json.currency }}\n• Confidence: {{ $('Invoice Ready').item.json.confidence_score }}\n• Issue: {{ $('Invoice Ready').item.json.validation_note }}\n• File: {{ $('Archive Original in Drive').item.json.webViewLink }}\nThe row was logged but is flagged for manual review."
+      },
+      "position": [
+        2496,
+        304
+      ],
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5
+    },
+    {
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack account"
+        }
+      },
+      "id": "cac7ef11-5265-4bfd-ab93-ac062a5adb30",
+      "name": "Invoice Logged Notification",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "oAuth2",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.slackChannelInvoices }}"
+        },
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        },
+        "select": "channel",
+        "text": "=✅ *Invoice logged*\n• Vendor: {{ $('Invoice Ready').item.json.vendor_name }}\n• Invoice: {{ $('Invoice Ready').item.json.invoice_number }} ({{ $('Invoice Ready').item.json.invoice_date }})\n• Total: {{ $('Invoice Ready').item.json.total_amount }} {{ $('Invoice Ready').item.json.currency }}\n• File: {{ $('Archive Original in Drive').item.json.webViewLink }}"
+      },
+      "position": [
+        2496,
+        512
+      ],
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5
+    },
+    {
+      "credentials": {
+        "slackOAuth2Api": {
+          "name": "Slack account"
+        }
+      },
+      "id": "4b91fd25-2aa0-4255-8ecf-f3c6da2477c8",
+      "name": "Pipeline Error Alert",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "oAuth2",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.slackChannelAlerts }}"
+        },
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        },
+        "select": "channel",
+        "text": "=🛑 *Invoice pipeline step failed*\n• Node: {{ $json.error?.node?.name ?? \"unknown node\" }}\n• Error: {{ $json.error?.message ?? $json.error ?? \"unknown error\" }}\n• Execution: {{ $execution.id }}\nThis attachment was skipped; other emails in the queue continue processing."
+      },
+      "position": [
+        1392,
+        1104
+      ],
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5
+    },
+    {
+      "id": "93289537-fe17-472e-8cc5-39f095dfafff",
+      "name": "Sticky Note 5483e178",
+      "parameters": {
+        "color": 4,
+        "content": "## 1. Ingest\nGmail poll every minute, unread + has attachment + invoice keywords.\n**Split Attachments** fans one item out per attachment and tags each as pdf / image / unsupported.\nSwap this trigger for Google Drive Trigger or Webhook — only **Split Attachments** needs adjusting, everything downstream is unchanged.",
+        "height": 200,
+        "width": 740
+      },
+      "position": [
+        -848,
+        32
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "id": "b3bf7236-537e-439e-af73-ee74a6aaa658",
+      "name": "Sticky Note 5274d914",
+      "parameters": {
+        "color": 3,
+        "content": "## 2. Gemini extraction\nPDF and image use different Google Gemini resources (document vs image) — that is why there are two nodes.\nModel: gemini-2.5-flash (free tier). If the model list rejects the ID, re-pick it from the dropdown.\nsimplify=false keeps the raw API shape; the parser reads candidates[0].content.parts[].text.\nmaxOutputTokens is raised to 4096 — the node default of 300 truncates the JSON.\nRetry: 3 tries, 3s apart, then the error output fires.",
+        "height": 228,
+        "width": 300
+      },
+      "position": [
+        0,
+        0
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "id": "6a44777d-e2ee-432d-a752-90c043e4e021",
+      "name": "Sticky Note 7b452a00",
+      "parameters": {
+        "color": 5,
+        "content": "## 3. Validate + one simplified retry\n**Parse and Validate** strips code fences, JSON.parses, checks subtotal + tax vs total (tolerance max(0.02, 1%)), and sets needs_review when confidence < 0.6.\nOn parse failure the item is re-sent once with a stripped-down prompt. Still broken then alert only, no row written.",
+        "width": 904
+      },
+      "position": [
+        592,
+        80
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "id": "3b284f1d-9d8f-4f67-aa02-d8261b9b0be7",
+      "name": "Sticky Note 883fd4d3",
+      "parameters": {
+        "color": 6,
+        "content": "## 4. Store + notify\n**Invoice Ready** is the single fan-in point, so every downstream expression reads $(\"Invoice Ready\").item.json and both the first-pass and the retry path resolve identically.\nSet the Sheets document/sheet and the Drive folder before activating.",
+        "width": 780
+      },
+      "position": [
+        1808,
+        112
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "b30ad6f3-5c53-48b4-b86e-31ef1c0deb4b",
+      "maxTries": 3,
+      "name": "Extract Invoice from PDF",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "inputType": "binary",
+        "modelId": {
+          "__rl": true,
+          "cachedResultName": "gemini-2.5-flash",
+          "mode": "list",
+          "value": "models/gemini-2.5-flash"
+        },
+        "options": {
+          "maxOutputTokens": 4096
+        },
+        "resource": "document",
+        "simplify": false,
+        "text": "You are an expert invoice and receipt data extraction engine.\nExtract the data from the attached document and return ONLY a single valid JSON object.\nDo not include markdown fences, explanations, or any text outside the JSON.\n\nRules:\n- The document may be a low-quality scan, a phone photo, or handwritten. Extract everything you can read.\n- The document may be in any language (Albanian, English, Italian, German, ...). Keep vendor names and item descriptions in the original language.\n- Dates MUST be normalized to ISO format YYYY-MM-DD. If a date is ambiguous (e.g. 03/04/2025), prefer the DD/MM/YYYY reading unless the vendor is clearly US-based.\n- Amounts MUST be plain decimal numbers: no thousand separators, dot as decimal separator, no currency symbols.\n- currency MUST be an ISO 4217 code (EUR, USD, ALL, GBP, ...). Infer it from the symbol or the vendor country when not written explicitly.\n- tax_rate is a percentage number (20 means 20%), or null when not stated.\n- Use null for any field you cannot determine. Never invent a value.\n- confidence_score is your own honest 0-1 estimate of overall extraction reliability. Go below 0.7 whenever the scan is poor, fields are missing, or you had to guess.\n\nReturn exactly this JSON shape:\n{\n  \"vendor_name\": \"string\",\n  \"vendor_tax_id\": \"string|null\",\n  \"invoice_number\": \"string\",\n  \"invoice_date\": \"YYYY-MM-DD\",\n  \"due_date\": \"YYYY-MM-DD|null\",\n  \"currency\": \"string\",\n  \"line_items\": [{ \"description\": \"string\", \"quantity\": 0, \"unit_price\": 0, \"total\": 0 }],\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"tax_rate\": 0,\n  \"total_amount\": 0,\n  \"payment_terms\": \"string|null\",\n  \"confidence_score\": 0\n}"
+      },
+      "position": [
+        80,
+        288
+      ],
+      "retryOnFail": true,
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "fa5582ba-0c4e-4dab-8259-59e4d096aaa7",
+      "maxTries": 3,
+      "name": "Extract Invoice from Image",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "inputType": "binary",
+        "modelId": {
+          "__rl": true,
+          "cachedResultName": "gemini-2.5-flash",
+          "mode": "list",
+          "value": "models/gemini-2.5-flash"
+        },
+        "operation": "analyze",
+        "options": {
+          "maxOutputTokens": 4096
+        },
+        "resource": "image",
+        "simplify": false,
+        "text": "You are an expert invoice and receipt data extraction engine.\nExtract the data from the attached image and return ONLY a single valid JSON object.\nDo not include markdown fences, explanations, or any text outside the JSON.\n\nRules:\n- The image may be a low-quality scan, a phone photo, or handwritten. Extract everything you can read.\n- The document may be in any language (Albanian, English, Italian, German, ...). Keep vendor names and item descriptions in the original language.\n- Dates MUST be normalized to ISO format YYYY-MM-DD. If a date is ambiguous (e.g. 03/04/2025), prefer the DD/MM/YYYY reading unless the vendor is clearly US-based.\n- Amounts MUST be plain decimal numbers: no thousand separators, dot as decimal separator, no currency symbols.\n- currency MUST be an ISO 4217 code (EUR, USD, ALL, GBP, ...). Infer it from the symbol or the vendor country when not written explicitly.\n- tax_rate is a percentage number (20 means 20%), or null when not stated.\n- Use null for any field you cannot determine. Never invent a value.\n- confidence_score is your own honest 0-1 estimate of overall extraction reliability. Go below 0.7 whenever the scan is poor, fields are missing, or you had to guess.\n\nReturn exactly this JSON shape:\n{\n  \"vendor_name\": \"string\",\n  \"vendor_tax_id\": \"string|null\",\n  \"invoice_number\": \"string\",\n  \"invoice_date\": \"YYYY-MM-DD\",\n  \"due_date\": \"YYYY-MM-DD|null\",\n  \"currency\": \"string\",\n  \"line_items\": [{ \"description\": \"string\", \"quantity\": 0, \"unit_price\": 0, \"total\": 0 }],\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"tax_rate\": 0,\n  \"total_amount\": 0,\n  \"payment_terms\": \"string|null\",\n  \"confidence_score\": 0\n}"
+      },
+      "position": [
+        80,
+        512
+      ],
+      "retryOnFail": true,
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "4c5aaaaa-4ff0-46cd-9bdf-00fc2f4d05c0",
+      "maxTries": 3,
+      "name": "Retry Extraction PDF",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "inputType": "binary",
+        "modelId": {
+          "__rl": true,
+          "cachedResultName": "gemini-2.5-flash",
+          "mode": "list",
+          "value": "models/gemini-2.5-flash"
+        },
+        "options": {
+          "maxOutputTokens": 4096
+        },
+        "resource": "document",
+        "simplify": false,
+        "text": "Return ONLY a valid JSON object with the invoice data. No markdown, no explanation, no text before or after.\nKeys: vendor_name, vendor_tax_id, invoice_number, invoice_date, due_date, currency, line_items, subtotal, tax_amount, tax_rate, total_amount, payment_terms, confidence_score.\nDates as YYYY-MM-DD. Amounts as plain numbers. currency as ISO code. Unknown values as null. confidence_score between 0 and 1."
+      },
+      "position": [
+        960,
+        576
+      ],
+      "retryOnFail": true,
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "1acca091-67f0-42b9-8424-342790309631",
+      "maxTries": 3,
+      "name": "Retry Extraction Image",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "inputType": "binary",
+        "modelId": {
+          "__rl": true,
+          "cachedResultName": "gemini-2.5-flash",
+          "mode": "list",
+          "value": "models/gemini-2.5-flash"
+        },
+        "operation": "analyze",
+        "options": {
+          "maxOutputTokens": 4096
+        },
+        "resource": "image",
+        "simplify": false,
+        "text": "Return ONLY a valid JSON object with the invoice data. No markdown, no explanation, no text before or after.\nKeys: vendor_name, vendor_tax_id, invoice_number, invoice_date, due_date, currency, line_items, subtotal, tax_amount, tax_rate, total_amount, payment_terms, confidence_score.\nDates as YYYY-MM-DD. Amounts as plain numbers. currency as ISO code. Unknown values as null. confidence_score between 0 and 1."
+      },
+      "position": [
+        960,
+        768
+      ],
+      "retryOnFail": true,
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "93f9fd1d-0821-44ed-b237-603cd048f488",
+      "name": "Mark as Processed",
+      "notes": "Terminal node for every branch. The Gmail trigger polls unread mail, so \"unread\" is the queue: without this the same email is reprocessed every 15 minutes. Placed last so a failure upstream leaves the mail unread and the next poll retries it.",
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "messageId": "={{ $('Split Attachments').item.json.message_id }}",
+        "operation": "markAsRead"
+      },
+      "position": [
+        2752,
+        400
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "a313ad9f-7a2a-4343-9bf5-fef7afe69202",
+      "name": "Inject Test Invoices",
+      "parameters": {},
+      "position": [
+        -608,
+        1344
+      ],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "b5bf488f-a661-455d-b1ba-0d0d2c63c678",
+      "name": "Test Config",
+      "notes": "Inbox the injector sends to. Must be the address the Gmail Trigger watches.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-test-inbox",
+              "name": "testInbox",
+              "type": "string",
+              "value": "you@example.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        -384,
+        1344
+      ],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "e97b0bfe-550b-4473-b0a7-9da540a51a55",
+      "name": "Generate Test Invoices",
+      "parameters": {
+        "jsCode": "// Builds a minimal, valid PDF from plain text lines. No libraries: a PDF is a text\n// format, and a correct xref table is just byte offsets. Keep every string ASCII —\n// the file is written as latin1, so \"EUR\" not the euro sign.\nfunction buildPdf(lines) {\n  function esc(s) {\n    return String(s).split(\"\\\\\").join(\"\\\\\\\\\").split(\"(\").join(\"\\\\(\").split(\")\").join(\"\\\\)\");\n  }\n  let content = \"BT\\n/F1 11 Tf\\n50 800 Td\\n14 TL\\n\";\n  for (const line of lines) {\n    content += \"(\" + esc(line) + \") Tj T*\\n\";\n  }\n  content += \"ET\";\n\n  const objs = [\n    null,\n    \"<< /Type /Catalog /Pages 2 0 R >>\",\n    \"<< /Type /Pages /Kids [3 0 R] /Count 1 >>\",\n    \"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\",\n    \"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\",\n    \"<< /Length \" + content.length + \" >>\\nstream\\n\" + content + \"\\nendstream\",\n  ];\n\n  let pdf = \"%PDF-1.4\\n\";\n  const offsets = [];\n  for (let i = 1; i <= 5; i++) {\n    offsets[i] = pdf.length;\n    pdf += i + \" 0 obj\\n\" + objs[i] + \"\\nendobj\\n\";\n  }\n  const xrefStart = pdf.length;\n  pdf += \"xref\\n0 6\\n0000000000 65535 f \\n\";\n  for (let i = 1; i <= 5; i++) {\n    pdf += (\"0000000000\" + offsets[i]).slice(-10) + \" 00000 n \\n\";\n  }\n  pdf += \"trailer\\n<< /Size 6 /Root 1 0 R >>\\nstartxref\\n\" + xrefStart + \"\\n%%EOF\";\n\n  return Buffer.from(pdf, \"latin1\").toString(\"base64\");\n}\n\nfunction pdfItem(subject, body, fileName, lines) {\n  return {\n    json: { subject: subject, body: body, test_case: fileName },\n    binary: {\n      data: {\n        data: buildPdf(lines),\n        mimeType: \"application/pdf\",\n        fileName: fileName,\n        fileExtension: \"pdf\",\n      },\n    },\n  };\n}\n\n// 1 - clean invoice, totals consistent. Expect: row logged, needs_review = false.\nconst clean = pdfItem(\n  \"Invoice INV-2026-001 from Acme Sh.p.k.\",\n  \"Please find attached invoice INV-2026-001.\",\n  \"test-1-clean-invoice.pdf\",\n  [\n    \"ACME SH.P.K.\",\n    \"Rruga e Durresit 12, Tirane, Albania\",\n    \"NIPT: L41234567A\",\n    \"\",\n    \"INVOICE\",\n    \"Invoice Number: INV-2026-001\",\n    \"Invoice Date: 12/03/2026\",\n    \"Due Date: 11/04/2026\",\n    \"\",\n    \"Description                Qty   Unit Price     Amount\",\n    \"Web development services     10       80.00     800.00\",\n    \"Hosting, annual              1       200.00     200.00\",\n    \"\",\n    \"Subtotal:                                      1000.00 EUR\",\n    \"VAT 20%:                                        200.00 EUR\",\n    \"TOTAL:                                         1200.00 EUR\",\n    \"\",\n    \"Payment Terms: Net 30\",\n  ],\n);\n\n// 2 - totals do not add up (500 + 100 != 700). Expect: row logged, math_ok = false,\n//     needs_review = true, review alert.\nconst badMath = pdfItem(\n  \"Invoice INV-2026-002 - Beta Consulting\",\n  \"Attached is invoice INV-2026-002.\",\n  \"test-2-bad-math.pdf\",\n  [\n    \"BETA CONSULTING LTD\",\n    \"22 High Street, London, UK\",\n    \"VAT: GB123456789\",\n    \"\",\n    \"INVOICE\",\n    \"Invoice Number: INV-2026-002\",\n    \"Invoice Date: 2026-03-15\",\n    \"Due Date: 2026-04-15\",\n    \"\",\n    \"Description                Qty   Unit Price     Amount\",\n    \"Strategy workshop            2       250.00     500.00\",\n    \"\",\n    \"Subtotal:                                       500.00 EUR\",\n    \"VAT 20%:                                        100.00 EUR\",\n    \"TOTAL:                                          700.00 EUR\",\n    \"\",\n    \"Payment Terms: Net 14\",\n  ],\n);\n\n// 3 - not an invoice at all. Expect: retry with the simplified prompt, then\n//     Extraction Failed Alert. No row written.\nconst notInvoice = pdfItem(\n  \"Invoice discussion - meeting notes attached\",\n  \"Notes from Tuesday, no invoice inside.\",\n  \"test-3-not-an-invoice.pdf\",\n  [\n    \"MEETING NOTES - PRODUCT SYNC\",\n    \"Tuesday, 10 March 2026\",\n    \"\",\n    \"Attendees: Ana, Blerim, Chris\",\n    \"\",\n    \"- Reviewed the onboarding funnel drop-off.\",\n    \"- Agreed to postpone the pricing page redesign.\",\n    \"- Chris to draft the Q2 roadmap by Friday.\",\n    \"- No budget decisions were taken in this meeting.\",\n    \"\",\n    \"Next sync: 17 March 2026\",\n  ],\n);\n\n// 4 - unsupported attachment type. Expect: Unsupported File Alert, no Gemini call.\nconst unsupported = {\n  json: {\n    subject: \"Fatura ne format teksti\",\n    body: \"Fatura eshte bashkengjitur si skedar teksti.\",\n    test_case: \"test-4-unsupported.txt\",\n  },\n  binary: {\n    data: {\n      data: Buffer.from(\n        \"FATURE\\nShitesi: Gamma SHPK\\nNumri: INV-2026-004\\nTotali: 300.00 EUR\\n\",\n        \"utf8\",\n      ).toString(\"base64\"),\n      mimeType: \"text/plain\",\n      fileName: \"test-4-unsupported.txt\",\n      fileExtension: \"txt\",\n    },\n  },\n};\n\n// 5 - barely legible receipt, most fields absent. Expect: low confidence_score,\n//     needs_review = true.\nconst sparse = pdfItem(\n  \"Receipt from corner shop\",\n  \"Small receipt attached.\",\n  \"test-5-sparse-receipt.pdf\",\n  [\n    \"MINIMARKET\",\n    \"\",\n    \"bread        1.20\",\n    \"milk         0.95\",\n    \"\",\n    \"TOTAL  2.15\",\n  ],\n);\n\nreturn [clean, badMath, notInvoice, unsupported, sparse];\n"
+      },
+      "position": [
+        -160,
+        1344
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      },
+      "id": "27b4a99c-70ad-44d2-8ff0-5dd2eef71bd5",
+      "name": "Send Test Invoice",
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        },
+        "sendTo": "={{ $('Test Config').first().json.testInbox }}",
+        "subject": "={{ $json.subject }}"
+      },
+      "position": [
+        64,
+        1344
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "b09acb95-4a9b-4461-af04-bc56f358337f",
+      "name": "Sticky Note Test Injector",
+      "parameters": {
+        "color": 4,
+        "content": "## 🧪 Test Injector\n\nClick **Inject Test Invoices** to send 5 emails to the address in **Test Config**.\nStandalone branch — runs independently of the Gmail trigger above.\n\n1. clean PDF invoice, totals consistent → row logged, needs_review false\n2. subtotal + tax ≠ total → row logged, math_ok false, review alert\n3. PDF that is not an invoice → retry, then Extraction Failed Alert, no row\n4. .txt attachment → Unsupported File Alert, no Gemini call\n5. tiny receipt, most fields absent → low confidence, needs_review true\n\nThe image branch cannot be generated in code — send a real phone photo with\n\"fature\" in the subject to cover Extract Invoice from Image.",
+        "height": 260,
+        "width": 672
+      },
+      "position": [
+        -688,
+        1024
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Append Row to Invoices Log": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Review Needed?",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Archive Original in Drive": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Append Row to Invoices Log",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Split Attachments",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extract Invoice from Image": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse and Validate",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extract Invoice from PDF": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse and Validate",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extraction Failed Alert": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Generate Test Invoices": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send Test Invoice",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Inject Test Invoices": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Test Config",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Invoice Logged Notification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Invoice Ready": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Archive Original in Drive",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "New Invoice Email": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Config",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Parse Retry Result": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Retry Parsed Successfully?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Parse and Validate": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parsed Successfully?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Parsed Successfully?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Invoice Ready",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Retry Route by File Type",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Pipeline Error Alert": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Retry Extraction Image": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse Retry Result",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Retry Extraction PDF": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse Retry Result",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Pipeline Error Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Retry Parsed Successfully?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Invoice Ready",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Extraction Failed Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Retry Route by File Type": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Retry Extraction PDF",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Retry Extraction Image",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Review Needed?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Review Required Notification",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Invoice Logged Notification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Review Required Notification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Route by File Type": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Extract Invoice from PDF",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Extract Invoice from Image",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Unsupported File Alert",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Split Attachments": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Route by File Type",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Test Config": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Generate Test Invoices",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Unsupported File Alert": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark as Processed",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "binaryMode": "separate",
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "tags": [],
+  "description": null,
+  "nodeGroups": []
+}

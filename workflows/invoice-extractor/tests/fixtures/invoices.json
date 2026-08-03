@@ -1,0 +1,61 @@
+[
+  {
+    "testCase": "test-1-clean-invoice.pdf",
+    "subject": "Invoice INV-2026-001 from Acme Sh.p.k.",
+    "mimeType": "application/pdf",
+    "fileKind": "pdf",
+    "expectedOutcome": "logged",
+    "expects": {
+      "parse_ok": true,
+      "math_ok": true,
+      "needs_review": false
+    },
+    "why": "Subtotal 1000 + VAT 200 = 1200. The happy path: a row in the Invoices Log and a notification in the invoices channel."
+  },
+  {
+    "testCase": "test-2-bad-math.pdf",
+    "subject": "Invoice INV-2026-002 - Beta Consulting",
+    "mimeType": "application/pdf",
+    "fileKind": "pdf",
+    "expectedOutcome": "logged-flagged",
+    "expects": {
+      "parse_ok": true,
+      "math_ok": false,
+      "needs_review": true
+    },
+    "why": "500 + 100 = 600, but the document says 700. Proves ADR-0002: the row is still written, with needs_review set and a review alert."
+  },
+  {
+    "testCase": "test-3-not-an-invoice.pdf",
+    "subject": "Invoice discussion - meeting notes attached",
+    "mimeType": "application/pdf",
+    "fileKind": "pdf",
+    "expectedOutcome": "extraction-failed",
+    "expects": {
+      "parse_ok": false,
+      "needs_review": true
+    },
+    "why": "Meeting notes, not an invoice. Exercises the ADR-0001 retry: first pass fails, the simplified prompt fails too, Extraction Failed Alert fires and no row is written."
+  },
+  {
+    "testCase": "test-4-unsupported.txt",
+    "subject": "Fatura ne format teksti",
+    "mimeType": "text/plain",
+    "fileKind": "unsupported",
+    "expectedOutcome": "unsupported",
+    "expects": {},
+    "why": "text/plain is not in the Split Attachments allowlist, so Route by File Type sends it down the Unsupported slot. No Gemini call is made at all."
+  },
+  {
+    "testCase": "test-5-sparse-receipt.pdf",
+    "subject": "Receipt from corner shop",
+    "mimeType": "application/pdf",
+    "fileKind": "pdf",
+    "expectedOutcome": "logged-flagged",
+    "expects": {
+      "parse_ok": true,
+      "needs_review": true
+    },
+    "why": "A till receipt with no vendor id, no invoice number and no VAT line. Confidence lands below 0.6, and the missing tax is treated as 0 rather than as missing data — the case that motivated ADR-0002."
+  }
+]
