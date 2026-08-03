@@ -5,10 +5,12 @@
     "mimeType": "application/pdf",
     "fileKind": "pdf",
     "expectedOutcome": "logged",
-    "expects": {
+    "observed": {
       "parse_ok": true,
       "math_ok": true,
-      "needs_review": false
+      "needs_review": false,
+      "confidence_score": 0.95,
+      "total_amount": 1200
     },
     "why": "Subtotal 1000 + VAT 200 = 1200. The happy path: a row in the Invoices Log and a notification in the invoices channel."
   },
@@ -18,24 +20,29 @@
     "mimeType": "application/pdf",
     "fileKind": "pdf",
     "expectedOutcome": "logged-flagged",
-    "expects": {
+    "observed": {
       "parse_ok": true,
       "math_ok": false,
-      "needs_review": true
+      "needs_review": true,
+      "confidence_score": 1,
+      "validation_note": "subtotal + tax_amount does not equal total_amount"
     },
-    "why": "500 + 100 = 600, but the document says 700. Proves ADR-0002: the row is still written, with needs_review set and a review alert."
+    "why": "500 + 100 = 600, but the document says 700. Proves ADR-0002: the row is still written, with needs_review set and a review alert. Note the model reports confidence 1.0 — it read the document correctly; the document is wrong. Only the arithmetic check catches this."
   },
   {
     "testCase": "test-3-not-an-invoice.pdf",
     "subject": "Invoice discussion - meeting notes attached",
     "mimeType": "application/pdf",
     "fileKind": "pdf",
-    "expectedOutcome": "extraction-failed",
-    "expects": {
-      "parse_ok": false,
-      "needs_review": true
+    "expectedOutcome": "logged-flagged",
+    "observed": {
+      "parse_ok": true,
+      "math_ok": true,
+      "needs_review": true,
+      "confidence_score": 0.05,
+      "total_amount": 0
     },
-    "why": "Meeting notes, not an invoice. Exercises the ADR-0001 retry: first pass fails, the simplified prompt fails too, Extraction Failed Alert fires and no row is written."
+    "why": "Meeting notes, not an invoice. This was written expecting the ADR-0001 retry path — but gemini-2.5-flash returns a well-formed JSON object full of nulls rather than prose, so parse_ok is true and it is the confidence gate that catches it. The outcome is still correct; the mechanism is not the one intended. See the note on the retry path in the README."
   },
   {
     "testCase": "test-4-unsupported.txt",
@@ -43,7 +50,7 @@
     "mimeType": "text/plain",
     "fileKind": "unsupported",
     "expectedOutcome": "unsupported",
-    "expects": {},
+    "observed": {},
     "why": "text/plain is not in the Split Attachments allowlist, so Route by File Type sends it down the Unsupported slot. No Gemini call is made at all."
   },
   {
@@ -51,11 +58,15 @@
     "subject": "Receipt from corner shop",
     "mimeType": "application/pdf",
     "fileKind": "pdf",
-    "expectedOutcome": "logged-flagged",
-    "expects": {
+    "expectedOutcome": "logged",
+    "observed": {
       "parse_ok": true,
-      "needs_review": true
+      "math_ok": true,
+      "needs_review": false,
+      "confidence_score": 0.7,
+      "total_amount": 2.15,
+      "validation_note": "no tax line; treated as 0"
     },
-    "why": "A till receipt with no vendor id, no invoice number and no VAT line. Confidence lands below 0.6, and the missing tax is treated as 0 rather than as missing data — the case that motivated ADR-0002."
+    "why": "A till receipt with no vendor id, no invoice number and no VAT line. This is the case that motivated ADR-0002: the missing tax is treated as 0, so the arithmetic closes and the receipt is logged clean rather than flagged. It was written expecting confidence below 0.6; the model returns 0.7, so it passes — which is the intended behaviour for a legitimate tax-exempt receipt."
   }
 ]

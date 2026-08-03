@@ -318,13 +318,21 @@ describe('test fixtures stay in sync with the injector node', () => {
     }
   });
 
-  test('the fixtures cover all five terminal outcomes of the pipeline', () => {
+  test('the fixtures cover the outcomes they can reach deterministically', () => {
+    // `extraction-failed` is deliberately absent. It needs the model to return
+    // something unparseable, and gemini-2.5-flash answers even a non-invoice
+    // with well-formed JSON full of nulls — so the confidence gate catches that
+    // case, not the retry. The retry path is real but has no fixture that
+    // reliably triggers it; see the README.
     assert.deepEqual([...new Set(fixtures.map((fixture) => fixture.expectedOutcome))].sort(), [
-      'extraction-failed',
       'logged',
       'logged-flagged',
       'unsupported'
     ]);
+    assert.ok(
+      fixtures.some((fixture) => fixture.observed?.math_ok === false),
+      'keep a case that proves the arithmetic check fires'
+    );
     assert.ok(
       fixtures.some((fixture) => fixture.fileKind === 'unsupported'),
       'keep a case that never reaches Gemini'

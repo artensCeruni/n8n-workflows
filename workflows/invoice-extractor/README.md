@@ -125,11 +125,14 @@ any order — the append node maps by name:
 ```
 vendor_name, vendor_tax_id, invoice_number, invoice_date, due_date, currency,
 line_items, subtotal, tax_amount, tax_rate, total_amount, payment_terms,
-confidence_score, parse_ok, math_ok, needs_review, validation_note,
-source_email, email_subject, file_name, drive_link, processed_at
+confidence_score, source_email, file_name, processed_at, file_link, attempt,
+math_ok, needs_review
 ```
 
-Filter on `needs_review = TRUE` to get the review queue.
+Filter on `needs_review = TRUE` to get the review queue. `file_link` is the Drive
+URL of the archived original, so a reviewer can open the document from the row.
+The full `validation_note` is not a column — it goes to the Slack alert, which is
+where a flagged row is actually acted on.
 
 ## Credentials
 
@@ -206,8 +209,22 @@ make test                                # shared invariants + the ones below
 End-to-end, against real Gmail: click **Inject Test Invoices**. It builds five
 PDFs in code — clean, bad arithmetic, not-an-invoice, unsupported `.txt`, and a
 sparse receipt — and mails them to `Test Config.testInbox`, so the live trigger
-picks them up and all five outcomes run. `tests/fixtures/invoices.json` records
-what each one should do, and a test asserts the injector still contains them.
+picks them up. `tests/fixtures/invoices.json` records what each one does, with
+the values observed on a real run, and a test asserts the injector still contains
+them.
+
+Verified end to end on 2026-08-03: 5 attachments in, binary intact through
+`Config`, 4 PDFs extracted, 1 `.txt` alerted as unsupported, 4 rows appended with
+Drive links, 5 Slack posts delivered to the channels resolved from `Config`, and
+all 5 items marked read.
+
+**The retry path has no deterministic fixture.** `test-3-not-an-invoice.pdf` was
+written to force a parse failure, but `gemini-2.5-flash` answers even a page of
+meeting notes with a well-formed JSON object full of nulls — so `parse_ok` is
+true and the item is caught by `confidence_score: 0.05` instead. The ADR-0001
+retry is still wired and asserted structurally, but exercising it needs a
+response the model does not readily produce. Treat that path as tested by the
+graph invariants, not by the injector.
 
 The image branch cannot be generated in code; send a phone photo of a receipt with
 `fature` in the subject to exercise `Extract Invoice from Image`.
