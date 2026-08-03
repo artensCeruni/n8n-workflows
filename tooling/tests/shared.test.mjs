@@ -122,6 +122,18 @@ for (const { slug, manifest, workflow } of workflows) {
       assert.deepEqual([...used].sort(), [...declared].sort());
     });
 
+    test('no credential export alias survives into the committed file', () => {
+      // `liveName` is what the credential is called on the authoring instance;
+      // `name` is the public contract cloners must reproduce. Export rewrites
+      // one to the other, so seeing a liveName here means the file was
+      // hand-edited or exported before the alias existed. See docs/adr/0005.
+      const serialized = JSON.stringify(workflow);
+      const leaked = (manifest.credentials ?? [])
+        .map((credential) => credential.liveName)
+        .filter((liveName) => liveName && serialized.includes(liveName));
+      assert.deepEqual(leaked, [], 'instance-local credential names must not be committed');
+    });
+
     test('does not read $env — blocked by default since n8n 2.0', () => {
       // Relying on $env would force every user of this repo to disable
       // N8N_BLOCK_ENV_ACCESS_IN_NODE. See docs/adr/0004.

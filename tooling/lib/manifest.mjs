@@ -116,6 +116,16 @@ export function validateManifest(manifest, slug) {
     manifest.credentials.forEach((credential, index) => {
       if (!credential?.type) problems.push(`credentials[${index}] missing "type"`);
       if (!credential?.name) problems.push(`credentials[${index}] missing "name"`);
+      // `liveName` is optional; when present it is what the credential is called
+      // on the authoring instance, and export rewrites it to `name`.
+      // See docs/adr/0005-credential-export-aliases.md.
+      if (credential?.liveName !== undefined) {
+        if (typeof credential.liveName !== 'string' || credential.liveName === '') {
+          problems.push(`credentials[${index}].liveName must be a non-empty string`);
+        } else if (credential.liveName === credential.name) {
+          problems.push(`credentials[${index}].liveName equals "name" — drop it`);
+        }
+      }
     });
   }
 

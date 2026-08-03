@@ -77,23 +77,49 @@ function orderWorkflowKeys(workflow) {
 }
 
 /**
- * Reduce a credential reference to its name.
+ * Reduce a credential reference to its name, applying any export alias.
  *
  * n8n stores `{ id, name }`. The id points at a row in *this* instance's
  * database, so keeping it means a fresh instance tries to bind to a credential
  * that does not exist and the node silently arrives unconfigured. Keeping only
  * the name makes the name a public contract: create a credential called
  * "Gmail account" and import wires it up automatically.
+ *
+ * Because that name is a public contract, an instance-local accident of naming
+ * — "Slack account 2", because the first attempt was deleted — would become
+ * something every cloner has to reproduce exactly. A manifest entry may declare
+ * `liveName` to rename the credential on the way out; see
+ * docs/adr/0005-credential-export-aliases.md.
+ *
+ * @param {object} credentials  node.credentials from the API
+ * @param {Map<string,string>} aliases  liveName → published name
  */
-function sanitizeCredentials(credentials) {
+function sanitizeCredentials(credentials, aliases) {
   if (!credentials || typeof credentials !== 'object') return undefined;
   const out = {};
   for (const [type, ref] of Object.entries(credentials)) {
     if (!ref) continue;
     const name = typeof ref === 'string' ? ref : ref.name;
-    if (name) out[type] = { name };
+    if (name) out[type] = { name: aliases.get(name) ?? name };
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Build the liveName → name map from a manifest.
+ *
+ * Idempotent by construction: the published name is never itself a key, so
+ * sanitising an already-sanitised workflow is a no-op — which the round-trip
+ * test in tooling/tests/shared.test.mjs depends on.
+ */
+function credentialAliases(manifest) {
+  const aliases = new Map();
+  for (const credential of manifest.credentials ?? []) {
+    if (credential?.liveName && credential.name && credential.liveName !== credential.name) {
+      aliases.set(credential.liveName, credential.name);
+    }
+  }
+  return aliases;
 }
 
 /**
@@ -141,19 +167,21 @@ function applyConfigPlaceholders(node, placeholders, warnings) {
 
 /**
  * @param {object} workflow  Raw workflow object from the n8n API.
- * @param {object} [manifest] Parsed manifest.json; supplies `configNodes`.
+ * @param {object} [manifest] Parsed manifest.json; supplies `configNodes` and
+ *   any credential `liveName` aliases.
  * @returns {{ workflow: object, warnings: string[] }}
  */
 export function sanitizeWorkflow(workflow, manifest = {}) {
   const warnings = [];
   const configNodes = manifest.configNodes ?? {};
+  const aliases = credentialAliases(manifest);
 
   const nodes = (workflow.nodes ?? []).map((rawNode) => {
     let node = { ...rawNode };
 
     for (const key of INSTANCE_LOCAL_NODE_KEYS) delete node[key];
 
-    const credentials = sanitizeCredentials(rawNode.credentials);
+    const credentials = sanitizeCredentials(rawNode.credentials, aliases);
     if (credentials) node.credentials = credentials;
 
     if (Object.prototype.hasOwnProperty.call(configNodes, node.name)) {

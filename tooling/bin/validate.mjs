@@ -159,6 +159,18 @@ for (const { slug, manifest, workflow } of workflows) {
     );
   }
 
+  // A declared `liveName` is the instance-local credential name that export
+  // rewrites away. Finding one here means the rewrite did not run — the file was
+  // hand-edited, or exported before the alias was declared.
+  for (const credential of manifest.credentials ?? []) {
+    if (credential?.liveName && serialized.includes(credential.liveName)) {
+      problems.push(
+        `credentials: "${credential.liveName}" is an export alias and must not appear in ` +
+          'workflow.json — run make export'
+      );
+    }
+  }
+
   if (problems.length === 0) {
     console.log(`✔ ${slug}`);
   } else {

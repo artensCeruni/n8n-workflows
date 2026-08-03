@@ -110,6 +110,25 @@ even if you forget they exist:
 | `pinData`                                          | Editor test fixtures                                                     |
 | `versionId`, `webhookId`, `instanceId`, timestamps | Instance-local noise                                                     |
 
+Export also **rewrites** two things, driven by `manifest.json`:
+
+| Rewritten                | Driven by                | Into                            |
+| ------------------------ | ------------------------ | ------------------------------- |
+| Config node field values | `configNodes` (see 3b)   | the declared placeholder        |
+| Credential names         | `credentials[].liveName` | the public `credentials[].name` |
+
+`liveName` is optional and exists for one case: your instance calls a credential
+something local and accidental — `Slack account 2` — and that name would
+otherwise become a contract every cloner has to reproduce. Declare it and export
+publishes the clean name:
+
+```json
+{ "type": "slackOAuth2Api", "name": "Slack account", "liveName": "Slack account 2" }
+```
+
+Do **not** rename the credential in n8n instead, and do not hand-edit
+`workflow.json` — rule 1. See [ADR-0005](adr/0005-credential-export-aliases.md).
+
 ### 3b. Your job — move to a Config node
 
 Anything account-specific that lives in a node parameter. Typical culprits:
@@ -317,6 +336,12 @@ npm run check                              # validate + docs + format + tests
 npm run up / down / logs                   # n8n container
 npm run backup                             # archive data + key warning
 ```
+
+> **`import` is not a restore.** The repo copy is the _published_ form of a
+> workflow, not a backup of your instance. Importing it back overwrites Config
+> nodes with placeholders, and — where `liveName` is declared — binds credentials
+> by the public name, which your instance may not have. Both are intentional;
+> keep your instance as the source of truth and let `export` flow one way.
 
 ## The three rules
 
