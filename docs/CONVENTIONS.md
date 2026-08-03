@@ -58,6 +58,15 @@ The contract that lets every tool stay generic.
 `status` is one of `live`, `draft`, `archived`. `n8nId` is empty until the workflow
 exists in n8n; `import` prints the new id for you to paste in.
 
+**`status` describes the project, not the toggle.** It is typed by hand and means
+_finished and fit to run_ — as opposed to `draft`, still being built, or
+`archived`, kept for reference. It is deliberately **not** n8n's `active` flag:
+`sanitize.mjs` strips `active` on export, because whether the author's instance
+happens to have a workflow switched on says nothing about whether yours should.
+So a workflow can read 🟢 live in the README index while sitting inactive in the
+instance it was exported from, and that is not a contradiction. Nothing validates
+the two against each other, because there is nothing to validate them against.
+
 **`n8nId` is not a secret.** It identifies a row in whichever n8n instance the
 workflow was authored on — usually `localhost` — and grants no access on its own;
 the API still requires a key. It is committed because `make export` needs to know
