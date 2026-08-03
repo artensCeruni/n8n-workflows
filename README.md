@@ -68,23 +68,46 @@ What the projects share is only the runtime, the toolchain and the pipeline —
 ## What makes this more than a JSON dump
 
 **Configuration never leaks.** Per-account values — alert addresses, Gmail label
-ids — live in a `Config` node on the canvas. On export, `sanitize.mjs` rewrites
-them to the placeholders declared in the manifest, so the live instance holds real
-values and the repo holds only placeholders. Not `$env`: n8n 2.0 blocks env access
-by default, and using it would mean telling every user to weaken that
+ids, Slack channel ids, Sheets document ids — live in a `Config` node on the
+canvas. On export, `sanitize.mjs` rewrites them to the placeholders declared in
+the manifest, so the live instance holds real values and the repo holds only
+placeholders. Not `$env`: n8n 2.0 blocks env access by default, and using it would
+mean telling every user to weaken that
 ([ADR-0004](docs/adr/0004-config-node-over-env-vars.md)).
 
+This is structural, not a scanner. A secret scanner catches the shapes it was
+taught; the Config node makes an account-specific value unable to reach the file
+in the first place.
+
 **Credentials bind by name.** Exports keep `{ "name": "Gmail account" }` and drop
-the instance-local id, which makes the _name_ a public contract. Create a
-credential with that name and `make import` wires up all nine nodes. No secret
-exists in this repository in any form.
+the instance-local id, which makes the _name_ a public contract: create
+credentials with the names a project's README lists, and `make import` wires up
+every node that needs them — five credential types across two workflows, no
+per-node clicking. Where a local name is an accident rather than a decision, the
+manifest declares it as `liveName` and export publishes the clean one, so nothing
+has to be renamed inside a running instance
+([ADR-0005](docs/adr/0005-credential-export-aliases.md)). No secret exists in this
+repository in any form.
 
 **Tests encode the design decisions.** Every ADR has an assertion that fails if a
-future edit undoes it. The one that earns its keep walks the connection graph and
-proves _every_ branch of the router reaches `Mark as Processed` — because the Gmail
-trigger filters on unread mail, so a branch missing that terminator would
-reprocess the same email every single minute, forever
-([ADR-0002](workflows/email-ai-classifier/docs/adr/0002-mark-as-processed-at-branch-end.md)).
+future edit undoes it, and they are graph assertions rather than string matches —
+they walk the connections and prove a property, so a node renamed or a branch
+rewired is still checked.
+
+The one that earns its keep proves _every_ output slot of _every_ router reaches
+the node that marks the email read. Both workflows poll unread Gmail every minute,
+so a branch missing that terminator reprocesses the same message forever. In
+[Email AI Classifier](workflows/email-ai-classifier/docs/adr/0002-mark-as-processed-at-branch-end.md)
+that redrafts a reply; in
+[Invoice / Receipt Extractor](workflows/invoice-extractor/docs/adr/0004-single-terminator-on-every-branch.md)
+it re-bills an AI provider and appends the same row to a ledger, once a minute,
+until someone notices.
+
+The second-most valuable one pins a single option. A `Set` node with
+`includeOtherFields: true` declares `stripBinary: true` by default — so the
+Config node standing in front of the invoice pipeline would delete every
+attachment, and n8n would report nothing at all: the next node simply returns
+zero items ([ADR-0003](workflows/invoice-extractor/docs/adr/0003-config-node-must-not-strip-binary.md)).
 
 **Export is deterministic.** Keys sorted, instance state stripped, config
 normalised. A test asserts the committed file is byte-identical to what sanitise
@@ -99,6 +122,10 @@ make new-workflow SLUG=slack-digest
 The new directory is picked up automatically by the validator, the test suite, the
 CI matrix and the README index. Conventions are enforced by tooling rather than by
 memory — the path of least resistance is the correct one.
+
+Adding the second workflow is what tested that claim. It needed one new tooling
+feature and no change to discovery, CI, or any script: the manifest gained an
+optional field, and everything else found the project on its own.
 
 ## Commands
 
